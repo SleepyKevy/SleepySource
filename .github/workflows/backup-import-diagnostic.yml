@@ -1,0 +1,62 @@
+name: Diagnose SleepySource CSharp Backup Import
+
+on:
+  push:
+    branches:
+      - csharp-rewrite-1.0
+    paths:
+      - .github/workflows/backup-import-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: csharp-rewrite-1.0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Enable diagnostic exception text only in CI workspace
+        shell: pwsh
+        run: |
+          $p='CSharpHost/BackendHost.cs'
+          $s=Get-Content $p -Raw
+          $old='await ctx.Response.WriteAsync(status==500?"SleepySource request failed":ex.Message);'
+          $new='await ctx.Response.WriteAsync(status==500?ex.ToString():ex.Message);'
+          if(([regex]::Matches($s,[regex]::Escape($old))).Count-ne1){throw 'Could not install diagnostic exception output.'}
+          $s=$s.Replace($old,$new)
+          [IO.File]::WriteAllText((Resolve-Path $p),$s,[Text.UTF8Encoding]::new($false))
+      - name: Publish diagnostic build
+        shell: pwsh
+        run: |
+          dotnet restore CSharpHost/SleepySource.csproj -r win-x64
+          dotnet publish CSharpHost/SleepySource.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore -o diag
+      - name: Reproduce export/import failure
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop';$base='http://127.0.0.1:17891'
+          function Ready($p){for($i=0;$i-lt50;$i++){try{if((Invoke-WebRequest "$base/api/health" -UseBasicParsing -TimeoutSec 2).StatusCode-eq200){return}}catch{};Start-Sleep -Milliseconds 400};throw 'not ready'}
+          function G($path){Invoke-RestMethod ($base+$path) -TimeoutSec 10}
+          function P($path,$body){Invoke-RestMethod ($base+$path) -Method Post -ContentType 'application/json' -Body ($body|ConvertTo-Json -Depth 100 -Compress) -TimeoutSec 10}
+          $p=Start-Process -FilePath (Resolve-Path 'diag/SleepySource.exe') -ArgumentList '--headless' -PassThru
+          try{
+            Ready $p
+            $s=(G '/api/settings').settings;$s.designer_theme='purple';$null=P '/api/settings' $s
+            $backup=Join-Path (Resolve-Path '.').Path 'roundtrip.zip'
+            Invoke-WebRequest "$base/api/backup/export" -OutFile $backup -UseBasicParsing -TimeoutSec 20
+            $s=(G '/api/settings').settings;$s.designer_theme='red';$null=P '/api/settings' $s
+            try{
+              $r=Invoke-WebRequest "$base/api/backup/import" -Method Post -Form @{backup=Get-Item $backup} -UseBasicParsing -TimeoutSec 20
+              Write-Host "IMPORT HTTP $($r.StatusCode): $($r.Content)"
+              if((G '/api/settings').settings.designer_theme-ne'purple'){throw 'Backup import returned success but did not restore settings.'}
+            }catch{
+              Write-Host '=== BACKUP IMPORT EXCEPTION ==='
+              if($_.ErrorDetails.Message){Write-Host $_.ErrorDetails.Message}
+              if($_.Exception.Response){try{Write-Host ($_.Exception.Response.Content.ReadAsStringAsync().GetAwaiter().GetResult())}catch{}}
+              throw
+            }
+          }finally{if($p-and-not$p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}}
