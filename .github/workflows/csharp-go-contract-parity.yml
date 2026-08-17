@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - csharp-rewrite-1.0
-    paths:
-      - .github/workflows/csharp-go-contract-parity.yml
   workflow_dispatch:
 
 permissions:
