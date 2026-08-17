@@ -151,7 +151,7 @@ internal sealed class BackendHost : IDisposable
         web.MapPost("/api/countdown/control",async (HttpRequest r,CancellationToken ct)=>{using var d=await JsonDocument.ParseAsync(r.Body,cancellationToken:ct);countdown.Control(Str(d.RootElement,"action"));return J(countdown.State(core.ListFonts()));});
         web.MapMethods("/api/countdown/profiles",["GET","HEAD"],()=>J(countdown.State(core.ListFonts())));
         web.MapPost("/api/countdown/profiles",async (HttpRequest r,CancellationToken ct)=>{using var d=await JsonDocument.ParseAsync(r.Body,cancellationToken:ct);var a=Str(d.RootElement,"action");var n=Str(d.RootElement,"name");switch(a){case"save":await countdown.SaveProfileAsync(n);break;case"load":await countdown.LoadProfileAsync(n);break;case"delete":countdown.DeleteProfile(n);break;default:throw new InvalidDataException("unknown countdown profile action");}return J(countdown.State(core.ListFonts()));});
-        web.MapPost("/api/countdown/upload-font",async (HttpRequest r,CancellationToken ct)=>{var fam=await SaveFontAsync(r,ct);var s=countdown.State().Settings;s.FontFamily=fam;await countdown.ApplySettingsAsync(s);return J(new{settings=countdown.State().Settings,fonts=core.ListFonts()});});
+        web.MapPost("/api/countdown/upload-font",async (HttpRequest r,CancellationToken ct)=>{var fam=await SaveFontAsync(r,ct);var s=countdown.State().Settings;s.FontFamily=fam;await countdown.ApplySettingsAsync(s);return J(countdown.State(core.ListFonts()));});
     }
 
     private void MapAlerts(WebApplication web)
