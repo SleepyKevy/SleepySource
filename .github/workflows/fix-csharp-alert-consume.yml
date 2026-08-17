@@ -31,7 +31,8 @@ jobs:
           if(-not $s.Contains($old2)){ throw 'Expected presentation style clone line not found.' }
           $s=$s.Replace($old2,$new2)
           $s=$s.Replace('.Replace("{tier}", ev.Tier).Replace("{gift}", ev.GiftName).Replace("{reward}", ev.RewardTitle).Replace("{input}", ev.UserInput)', '.Replace("{tier}", ev.Tier ?? "").Replace("{gift}", ev.GiftName ?? "").Replace("{reward}", ev.RewardTitle ?? "").Replace("{input}", ev.UserInput ?? "")')
-          Set-Content $p $s -Encoding utf8NoBOM
+          $s=$s.TrimEnd("`r","`n")+"`n"
+          [System.IO.File]::WriteAllText($p,$s,[System.Text.UTF8Encoding]::new($false))
           git diff --check
       - name: Publish and exercise alert consume
         shell: pwsh
