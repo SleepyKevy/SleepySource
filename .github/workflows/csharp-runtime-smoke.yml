@@ -3,6 +3,7 @@ name: SleepySource 1.0 Pure C# Runtime Smoke
 on:
   push:
     branches:
+      - main
       - csharp-rewrite-1.0
   workflow_dispatch:
 
@@ -13,10 +14,8 @@ jobs:
   runtime-smoke:
     runs-on: windows-latest
     steps:
-      - name: Checkout pure C# rewrite
+      - name: Checkout pure C# source
         uses: actions/checkout@v4
-        with:
-          ref: csharp-rewrite-1.0
 
       - name: Use .NET 8
         uses: actions/setup-dotnet@v4
