@@ -1,0 +1,99 @@
+diff --git a/CSharpHost/AppUtil.cs b/CSharpHost/AppUtil.cs
+index 5d87868..2e868b4 100644
+--- a/CSharpHost/AppUtil.cs
++++ b/CSharpHost/AppUtil.cs
+@@ -9,7 +9,7 @@ namespace SleepySource;
+ 
+ internal static class AppUtil
+ {
+-    public const string DisplayVersion = "1.1";
++    public const string DisplayVersion = "1.1 Auth Build";
+     public const string ListenPrefix = "http://127.0.0.1:17891/";
+     public const long MaxUploadBytes = 50L << 20;
+     public const long MaxFontBytes = 20L << 20;
+diff --git a/CSharpHost/BackendHost.cs b/CSharpHost/BackendHost.cs
+index 050b7f9..1921382 100644
+--- a/CSharpHost/BackendHost.cs
++++ b/CSharpHost/BackendHost.cs
+@@ -16,9 +16,7 @@ internal sealed class BackendHost : IDisposable
+     private readonly CountdownService countdown;
+     private readonly AlertService alerts;
+     private readonly ChatService chat;
+-    private readonly KickService kick = new();
+-    private readonly KickUserAuthService streamAuth;
+-    private readonly CloudflareService cloudflare = new();
++    private readonly SleepySourceApiService sleepyApi;
+     private readonly ProfileBackupService profiles;
+     private readonly MediaSessionService media;
+     private readonly UpdateService updates = new();
+@@ -30,11 +28,11 @@ internal sealed class BackendHost : IDisposable
+         countdown = new CountdownService(core.DataDir);
+         alerts = new AlertService(core.DataDir);
+         chat = new ChatService(core.DataDir);
+-        streamAuth = new KickUserAuthService(core.DataDir);
++        sleepyApi = new SleepySourceApiService(core.DataDir, chat, alerts);
+         profiles = new ProfileBackupService(core);
+         media = new MediaSessionService(core);
+-        kickAssets = new KickAssetsService(chat, kick);
+-        health = new HealthService(core, chat, alerts, cloudflare);
++        kickAssets = new KickAssetsService(chat);
++        health = new HealthService(core, chat, alerts, sleepyApi);
+     }
+ 
+     public async Task StartAsync(CancellationToken ct = default)
+@@ -55,17 +53,18 @@ internal sealed class BackendHost : IDisposable
+         MapAlerts(web);
+         MapChat(web);
+         MapKick(web);
+-        MapCloudflareAndHealth(web);
++        MapHealth(web);
+         app = web;
+         try { await web.StartAsync(ct); }
+         catch { app = null; await web.DisposeAsync(); throw; }
+         await media.StartAsync();
++        sleepyApi.Start();
+     }
+ 
+     public void Stop()
+     {
+         media.Stop();
+-        cloudflare.Stop();
++        sleepyApi.Stop();
+         var running = app; app = null;
+         if (running is not null) try { using var stopCts = new CancellationTokenSource(TimeSpan.FromSeconds(3)); running.StopAsync(stopCts.Token).GetAwaiter().GetResult(); } catch { }
+         if (running is not null) try { running.DisposeAsync().AsTask().GetAwaiter().GetResult(); } catch { }
+@@ -76,8 +75,7 @@ internal sealed class BackendHost : IDisposable
+         web.Use(async (ctx, next) =>
+         {
+             var path = ctx.Request.Path.Value ?? "";
+-            var publicException = (path == "/api/chat/kick-webhook" && HttpMethods.IsPost(ctx.Request.Method)) || (path == "/api/relay-health" && (HttpMethods.IsGet(ctx.Request.Method) || HttpMethods.IsHead(ctx.Request.Method)));
+-            if (!publicException && !RequestAllowed(ctx.Request)) { ctx.Response.StatusCode=403; await ctx.Response.WriteAsync("local SleepySource request required"); return; }
++            if (!RequestAllowed(ctx.Request)) { ctx.Response.StatusCode=403; await ctx.Response.WriteAsync("local SleepySource request required"); return; }
+             ctx.Response.Headers["X-Content-Type-Options"]="nosniff";
+             ctx.Response.Headers["Referrer-Policy"]="no-referrer";
+             ctx.Response.Headers["X-Frame-Options"]="SAMEORIGIN";
+@@ -175,56 +173,39 @@ internal sealed class BackendHost : IDisposable
+         web.MapPost("/api/chat/test",async (HttpRequest r,CancellationToken ct)=>{JsonElement root=default;try{using var d=await JsonDocument.ParseAsync(r.Body,cancellationToken:ct);root=d.RootElement.Clone();}catch{}var username=root.ValueKind==JsonValueKind.Object?Str(root,"username"):"";var text=root.ValueKind==JsonValueKind.Object?Str(root,"text"):"";var uid=root.ValueKind==JsonValueKind.Object?Str(root,"user_id"):"";chat.AddMessage(new ChatMessage{UserID=uid.Length>0?uid:"123456",Username=username.Length>0?username:"SleepyViewer",Text=text.Length>0?text:"This is a test chat message OMEGALUL",Color="#55B7FF",IsMod=true,Badges=["Moderator","Subscriber"],BadgeDetails=[new(){Text="Moderator",Type="moderator"},new(){Text="Subscriber",Type="subscriber",Count=3}]});return J(ResponsePayloads.Chat(chat.State()));});
+         web.MapPost("/api/chat/clear",()=>{chat.ClearMessages();return Results.NoContent();});
+         web.MapPost("/api/chat/ingest",async (HttpRequest r,CancellationToken ct)=>{var bytes=await ReadLimited(r.Body,1L<<20,ct);if(bytes.Length==0)throw new InvalidDataException("invalid chat message");using var d=JsonDocument.Parse(bytes);var msg=ChatService.ParseKickChat(d.RootElement)??JsonSerializer.Deserialize<ChatMessage>(bytes,AppUtil.Json);if(msg is null||string.IsNullOrWhiteSpace(msg.Text))throw new InvalidDataException("message text required");chat.AddMessage(msg);return Results.NoContent();});
+-        web.MapPost("/api/chat/auth",async (HttpRequest r,CancellationToken ct)=>{using var d=await JsonDocument.ParseAsync(r.Body,cancellationToken:ct);var token=Str(d.RootElement,"access_token");var id=Str(d.RootElement,"client_id");var secret=Str(d.RootElement,"client_secret");var forget=Bool(d.RootElement,"forget");if(token.Length>0){chat.SetLegacyAccessToken(token);return J(new{ready=true,mode="legacy-user-token"});}if(forget){chat.ClearAuth();return J(new{ready=false,forgotten=true});}if(id.Length==0&&secret.Length==0){chat.DisconnectAuth();return J(new{ready=chat.HasAppCredentials(),saved=chat.State().CredentialsSaved});}if(id.Length==0||secret.Length==0)throw new InvalidDataException("both Kick Client ID and Client Secret are required");var appToken=await kick.RequestAppAccessTokenAsync(id,secret,ct);await chat.SetAppCredentialsAsync(id,secret);chat.SetKickAppToken(appToken.Token,appToken.ExpiresAt);return J(new{ready=true,mode="app"});});
+-        web.MapPost("/api/chat/connect",async (HttpRequest r,CancellationToken ct)=>{using var d=await JsonDocument.ParseAsync(r.Body,cancellationToken:ct);var channel=AppUtil.NormalizeKickChannelSlug(Str(d.RootElement,"channel"));if(channel.Length==0)channel=chat.State().Settings.KickChannel;var id=Str(d.RootElement,"client_id");var secret=Str(d.RootElement,"client_secret");string token;if(id.Length>0||secret.Length>0){if(id.Length==0||secret.Length==0)throw new InvalidDataException("both Kick Client ID and Client Secret are required");var t=await kick.RequestAppAccessTokenAsync(id,secret,ct);await chat.SetAppCredentialsAsync(id,secret);chat.SetKickAppToken(t.Token,t.ExpiresAt);token=t.Token;}else{if(!chat.HasAppCredentials())return Results.Text("enter your Kick Client ID and Client Secret first",statusCode:412);token=await chat.EnsureKickAccessTokenAsync(kick,ct);}await cloudflare.StartAsync(ct);var resolved=await kick.ResolveBroadcasterAsync(channel,token,ct);var sub=await kick.RefreshSubscriptionsAsync(token,resolved.UserID,ct);chat.SetResolvedChannel(resolved.Slug,resolved.UserID);var status=sub.Replaced>0?$"Official Kick chat + Alert Studio events refreshed ({sub.Replaced} old subscription removed) — waiting for verified events": "Official Kick chat + Alert Studio events freshly registered — waiting for the first verified event";chat.SetWebhookSubscription(sub.SubscriptionID,status);return J(new{connected=true,channel=resolved.Slug,broadcaster_user_id=resolved.UserID,webhook_subscribed=true,webhook_subscription_id=sub.SubscriptionID,replaced_subscriptions=sub.Replaced,webhook_path="/api/chat/kick-webhook",webhook_url=cloudflare.WebhookURL,relay_running=true,relay_mode="quick",auth_mode="app"});});
+-        web.MapPost("/api/chat/reregister",async (CancellationToken ct)=>{var st=chat.State();if(st.BroadcasterUserID.Length==0||st.ConnectedChannel.Length==0)return Results.Text("connect your Kick channel first",statusCode:412);var token=await chat.EnsureKickAccessTokenAsync(kick,ct);await cloudflare.StartAsync(ct);var sub=await kick.RefreshSubscriptionsAsync(token,st.BroadcasterUserID,ct);chat.SetWebhookSubscription(sub.SubscriptionID,sub.Replaced>0?$"Official Kick chat + Alert Studio events refreshed ({sub.Replaced} old subscription removed) — waiting for verified events": "Official Kick chat + Alert Studio events freshly registered — waiting for the first verified event");return J(new{ok=true,webhook_subscription_id=sub.SubscriptionID,replaced_subscriptions=sub.Replaced,webhook_url=cloudflare.WebhookURL});});
+-        web.MapGet("/api/chat/channel",async (HttpRequest r,CancellationToken ct)=>{var channel=AppUtil.NormalizeKickChannelSlug(r.Query["channel"].ToString());if(channel.Length==0)channel=chat.State().Settings.KickChannel;var token=await chat.EnsureKickAccessTokenAsync(kick,ct);var x=await kick.ResolveBroadcasterAsync(channel,token,ct);chat.SetResolvedChannel(x.Slug,x.UserID);return J(new{channel=x.Slug,broadcaster_user_id=x.UserID});});
+         web.MapGet("/api/chat/7tv",async (HttpRequest r,CancellationToken ct)=>J(await kickAssets.SevenTVAsync(r.Query["emote_set_id"],r.Query["kick_channel"],ct)));
+         web.MapGet("/api/chat/7tv-image",async (HttpRequest r,CancellationToken ct)=>{var x=await kickAssets.SevenTVImageAsync(r.Query["id"]!,ct);return Results.File(x.Data,x.ContentType);});
+         web.MapGet("/api/chat/kick-emote",async (HttpRequest r,CancellationToken ct)=>{var x=await kickAssets.KickEmoteAsync(r.Query["id"]!,ct);return Results.File(x.Data,x.ContentType);});
+         web.MapGet("/api/chat/avatar",async (HttpRequest r,CancellationToken ct)=>{var x=await kickAssets.AvatarAsync(r.Query["url"]!,ct);return Results.File(x.Data,x.ContentType);});
+         web.MapGet("/api/chat/badges",async (HttpRequest r,CancellationToken ct)=>J(await kickAssets.BadgeCatalogAsync(r.Query["channel"],ct)));
+         web.MapGet("/api/chat/badge-image",async (HttpRequest r,CancellationToken ct)=>{int.TryParse(r.Query["count"],out var count);var x=await kickAssets.BadgeImageAsync(r.Query["url"],r.Query["role"],count,ct);return Results.File(x.Data,x.ContentType);});
+-        web.MapPost("/api/chat/kick-webhook", (Func<HttpContext, Task<IResult>>)HandleKickWebhookAsync);
+     }
+ 
+     private void MapKick(WebApplication web)
+     {
+-        web.MapGet("/api/stream/auth/status",()=>{var s=streamAuth.State(chat.HasAppCredentials());return J(new{authorized=s.Authorized,scope=s.Scope,expires_at=s.ExpiresAt,redirect_uri=s.RedirectURI,pending=s.Pending,last_error=s.LastError,has_app_credentials=s.HasAppCredentials,connected_channel=chat.State().ConnectedChannel});});
+-        web.MapPost("/api/stream/auth/start",()=>{var creds=chat.AppCredentials();if(!creds.OK||chat.State().ConnectedChannel.Length==0)return Results.Text("Connect Kick Channel on the Connections page first",statusCode:412);var url=streamAuth.Begin(creds.ClientID);AppUtil.OpenExternal(url);return J(new{ok=true,pending=true,redirect_uri="http://127.0.0.1:17891/oauth/kick/callback",message="Opening Kick authorization in your browser"});});
+-        web.MapGet("/oauth/kick/callback",async (HttpRequest r,CancellationToken ct)=>{var oauthError=r.Query["error"].ToString().Trim();if(oauthError.Length>0){streamAuth.SetError("Kick authorization was not completed: "+(r.Query["error_description"].ToString().Trim() is var d&&d.Length>0?d:oauthError));return OAuthPage(false);}var c=chat.AppCredentials();if(!c.OK){streamAuth.SetError("Kick Developer App credentials are unavailable; reconnect Kick in Chat Overlay");return OAuthPage(false);}try{await streamAuth.FinishAsync(r.Query["code"]!,r.Query["state"]!,c.ClientID,c.ClientSecret,ct);return OAuthPage(true);}catch(Exception ex){streamAuth.SetError(ex.Message);return OAuthPage(false);}});
+-        web.MapPost("/api/stream/auth/disconnect",()=>{streamAuth.Clear();return J(new{ok=true,authorized=false});});
+-        web.MapGet("/api/stream/categories",async (HttpRequest r,CancellationToken ct)=>{var q=r.Query["q"].ToString().Trim();if(q.Length==0)return J(new{categories=Array.Empty<KickCategory>()});var token=await chat.EnsureKickAccessTokenAsync(kick,ct);return J(new{categories=await kick.SearchCategoriesAsync(q,token,ct)});});
+-        web.MapGet("/api/stream/metadata",async (CancellationToken ct)=>{var state=chat.State();var channel=state.ConnectedChannel.Length>0?state.ConnectedChannel:state.Settings.KickChannel;if(channel.Length==0)return Results.Text("Connect Kick Channel first",statusCode:412);var appToken=await chat.EnsureKickAccessTokenAsync(kick,ct);var meta=await kick.FetchChannelMetadataAsync(channel,appToken,ct);var auth=streamAuth.State(chat.HasAppCredentials());var authMeta=new KickChannelMeta(0,"","",0,"",false);var matches=false;if(auth.Authorized){var c=chat.AppCredentials();if(c.OK)try{var user=await streamAuth.EnsureTokenAsync(c.ClientID,c.ClientSecret,ct);authMeta=await kick.FetchAuthorizedChannelMetadataAsync(user,ct);matches=SameBroadcaster(state.BroadcasterUserID,meta,authMeta);if(matches){meta=authMeta;var live=await kick.FetchActiveLivestreamAsync(authMeta.BroadcasterUserID,user,ct);if(live.Live)meta=live.Meta;else meta=meta with { IsLive=false };}}catch{}}return J(new{connected=state.AuthReady&&state.ConnectedChannel.Length>0,auth_ready=state.AuthReady,channel=meta.ChannelSlug,broadcaster_user_id=meta.BroadcasterUserID,title=meta.Title,category_id=meta.CategoryID,category_name=meta.CategoryName,is_live=meta.IsLive,metadata_readback_available=meta.IsLive||meta.Title.Length>0||meta.CategoryID>0||meta.CategoryName.Length>0,update_supported=true,stream_authorized=auth.Authorized,authorized_channel=authMeta.ChannelSlug,authorized_broadcaster_user_id=authMeta.BroadcasterUserID,authorized_channel_matches=matches,connected_channel=state.ConnectedChannel});});
