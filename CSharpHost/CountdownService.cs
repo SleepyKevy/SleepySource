@@ -28,6 +28,7 @@ internal sealed class CountdownService
 
     public void ReloadFromDisk()
     {
+        Directory.CreateDirectory(profileDir);
         var next = AppUtil.LoadJsonOrDefault(settingsPath, () => new CountdownSettings(), "countdown settings");
         Normalize(next);
         lock (gate) { settings = next; ResetLocked(DateTime.UtcNow, true); }

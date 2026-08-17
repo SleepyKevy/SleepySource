@@ -42,6 +42,7 @@ internal sealed class CoreStateService
 
     public void ReloadFromDisk()
     {
+        foreach (var dir in new[] { DataDir, MediaDir, FontDir, ProfileDir }) Directory.CreateDirectory(dir);
         var next = AppUtil.LoadJsonOrDefault(SettingsPath, () => new Settings(), "settings");
         NormalizeSettings(next);
         lock (gate) { settings = next; updatedAt = AppUtil.NowMS(); }
@@ -340,6 +341,7 @@ internal sealed class CoreStateService
 
     private string? ResolveMediaFile(string? storedName, string prefix)
     {
+        if (!Directory.Exists(MediaDir)) return null;
         if (!string.IsNullOrWhiteSpace(storedName))
         {
             var path = Path.Combine(MediaDir, Path.GetFileName(storedName));
