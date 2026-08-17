@@ -1,0 +1,84 @@
+name: Validate SleepySource Fast Exit Once
+
+on:
+  push:
+    branches:
+      - fix-fast-exit-tray
+    paths:
+      - .github/workflows/validate-fast-exit-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate-fast-exit:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish desktop build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet restore CSharpHost/SleepySource.csproj -r win-x64
+          dotnet publish CSharpHost/SleepySource.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore -o exit-test-dist
+          if (-not (Test-Path 'exit-test-dist/SleepySource.exe')) { throw 'SleepySource.exe was not produced.' }
+          if (-not (Test-Path 'exit-test-dist/assets/app.ico')) { throw 'Published app icon is missing.' }
+
+      - name: Launch desktop app and close it with WM_CLOSE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class NativeClose {
+            [DllImport("user32.dll", SetLastError=true)]
+            public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+          }
+          '@
+
+          $exe = (Resolve-Path 'exit-test-dist/SleepySource.exe').Path
+          $proc = Start-Process -FilePath $exe -PassThru
+          try {
+            $window = [IntPtr]::Zero
+            for ($i = 0; $i -lt 60; $i++) {
+              if ($proc.HasExited) { throw "SleepySource exited before its desktop window appeared. Exit code: $($proc.ExitCode)" }
+              $proc.Refresh()
+              $window = $proc.MainWindowHandle
+              if ($window -ne [IntPtr]::Zero) { break }
+              Start-Sleep -Milliseconds 250
+            }
+            if ($window -eq [IntPtr]::Zero) { throw 'SleepySource desktop window did not appear.' }
+
+            $timer = [Diagnostics.Stopwatch]::StartNew()
+            if (-not [NativeClose]::PostMessage($window, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) {
+              throw 'Could not post WM_CLOSE to SleepySource.'
+            }
+
+            if (-not $proc.WaitForExit(3000)) {
+              throw 'SleepySource.exe was still running 3 seconds after WM_CLOSE.'
+            }
+            $timer.Stop()
+            if ($proc.ExitCode -ne 0) { throw "SleepySource exited with code $($proc.ExitCode)." }
+            Write-Host "SleepySource desktop process exited in $($timer.ElapsedMilliseconds) ms after WM_CLOSE."
+          }
+          finally {
+            if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          }
+
+      - name: Validate tray behavior source contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = [IO.File]::ReadAllText('CSharpHost/MainForm.cs')
+          if (-not $source.Contains('private readonly NotifyIcon trayIcon;')) { throw 'NotifyIcon tray implementation is missing.' }
+          if (-not $source.Contains('Visible = true')) { throw 'Tray icon is not enabled.' }
+          if ($source.Contains('ShowBalloonTip(')) { throw 'Balloon tray notifications should not be used.' }
+          if (-not $source.Contains('GracefulExitBudget = TimeSpan.FromMilliseconds(1500)')) { throw 'Fast-exit deadline is missing.' }
+          if (-not $source.Contains('Environment.Exit(0)')) { throw 'Hard-exit fallback is missing.' }
+          Write-Host 'Tray and fast-exit source contracts passed.'
