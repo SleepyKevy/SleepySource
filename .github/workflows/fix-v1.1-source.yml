@@ -1,0 +1,110 @@
+name: Fix SleepySource 1.1 Source Asset
+
+on:
+  push:
+    branches:
+      - agent/fix-v1.1-source
+    paths:
+      - .github/workflows/fix-v1.1-source.yml
+
+permissions:
+  contents: write
+
+jobs:
+  replace-source-asset:
+    runs-on: windows-latest
+    env:
+      RELEASE_SHA: 0133d7ec24ccbab0e94e83c981d1d660db2c7ddb
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout exact tested 1.1 commit
+        uses: actions/checkout@v4
+        with:
+          ref: 0133d7ec24ccbab0e94e83c981d1d660db2c7ddb
+          fetch-depth: 1
+
+      - name: Build clean source-only ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $srcParent = Join-Path $env:RUNNER_TEMP 'src-stage'
+          $srcRoot = Join-Path $srcParent 'SleepySource 1.1 Official Source'
+          New-Item -ItemType Directory -Force -Path $srcRoot | Out-Null
+          Copy-Item '.github' $srcRoot -Recurse
+          Copy-Item '.gitignore','README.txt','RELEASE_NOTES.txt' $srcRoot
+          Copy-Item 'CSharpHost' $srcRoot -Recurse
+
+          $junk = Get-ChildItem $srcRoot -Recurse -Force | Where-Object { $_.Name -in @('bin','obj','SleepySource_Data','SleepySource.Engine.exe') -or $_.Extension -in @('.pdb','.go') }
+          if ($junk) { throw "Source staging contains generated/junk content: $($junk[0].FullName)" }
+          if (Test-Path (Join-Path $srcRoot '.github/workflows/fix-v1.1-source.yml')) { throw 'Temporary fix workflow leaked into source package.' }
+          if (Test-Path (Join-Path $srcRoot '.github/workflows/publish-v1.1.yml')) { throw 'Temporary publish workflow leaked into source package.' }
+          if (-not (Test-Path (Join-Path $srcRoot '.github/workflows/csharp-runtime-smoke.yml'))) { throw 'Runtime smoke workflow missing from source package.' }
+
+          $count=(Get-ChildItem $srcRoot -Recurse -File -Force | Measure-Object).Count
+          if ($count -ne 47) { throw "Expected 47 source files, found $count." }
+
+          $srcZip = Join-Path $env:RUNNER_TEMP 'SleepySource_1.1_Official_Source.zip'
+          Compress-Archive -Path $srcRoot -DestinationPath $srcZip -CompressionLevel Optimal -Force
+          if ((Get-Item $srcZip).Length -gt 5000000) { throw "Source ZIP is unexpectedly large: $((Get-Item $srcZip).Length) bytes" }
+          $hash=(Get-FileHash $srcZip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "SOURCE_ZIP=$srcZip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "SOURCE_SHA=$hash" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "Clean Source SHA-256: $hash" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Replace source release asset
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $headers = @{
+            Authorization = "Bearer $env:GITHUB_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+            'User-Agent' = 'SleepySource-Release'
+          }
+          $repo=$env:GITHUB_REPOSITORY
+          $release=Invoke-RestMethod -Method Get -Uri "https://api.github.com/repos/$repo/releases/tags/v1.1" -Headers $headers
+          if ($release.draft -or $release.prerelease -or $release.tag_name -ne 'v1.1' -or $release.target_commitish -ne $env:RELEASE_SHA) { throw 'v1.1 release metadata is not the expected final release.' }
+          $old=$release.assets | Where-Object { $_.name -eq 'SleepySource_1.1_Official_Source.zip' }
+          if (-not $old) { throw 'Existing Source ZIP asset was not found.' }
+          Invoke-RestMethod -Method Delete -Uri "https://api.github.com/repos/$repo/releases/assets/$($old.id)" -Headers $headers
+
+          $name='SleepySource_1.1_Official_Source.zip'
+          $encoded=[Uri]::EscapeDataString($name)
+          $uri="https://uploads.github.com/repos/$repo/releases/$($release.id)/assets?name=$encoded"
+          $asset=Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -ContentType 'application/zip' -InFile $env:SOURCE_ZIP
+          if ($asset.state -ne 'uploaded' -or $asset.size -le 0 -or $asset.size -gt 5000000) { throw 'Clean Source ZIP upload failed or is unexpectedly large.' }
+          if ($asset.digest -and $asset.digest -ne "sha256:$env:SOURCE_SHA") { throw 'Clean Source ZIP digest mismatch.' }
+
+      - name: Verify final v1.1 release assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $headers = @{
+            Authorization = "Bearer $env:GITHUB_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+            'User-Agent' = 'SleepySource-Release'
+          }
+          $repo=$env:GITHUB_REPOSITORY
+          $release=Invoke-RestMethod -Method Get -Uri "https://api.github.com/repos/$repo/releases/tags/v1.1" -Headers $headers
+          if ($release.assets.Count -ne 2) { throw "Expected 2 final release assets, found $($release.assets.Count)." }
+          $pub=$release.assets | Where-Object { $_.name -eq 'SleepySource_1.1_Official_Public.zip' }
+          $src=$release.assets | Where-Object { $_.name -eq 'SleepySource_1.1_Official_Source.zip' }
+          if (-not $pub -or $pub.state -ne 'uploaded' -or $pub.size -lt 50000000) { throw 'Public asset is missing or invalid.' }
+          if (-not $src -or $src.state -ne 'uploaded' -or $src.size -le 0 -or $src.size -gt 5000000) { throw 'Source asset is missing or invalid.' }
+          "Final Public size: $($pub.size) bytes" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "Final Source size: $($src.size) bytes" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Remove temporary fix branch
+        if: success()
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $headers = @{
+            Authorization = "Bearer $env:GITHUB_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+            'User-Agent' = 'SleepySource-Release'
+          }
+          $repo=$env:GITHUB_REPOSITORY
+          Invoke-RestMethod -Method Delete -Uri "https://api.github.com/repos/$repo/git/refs/heads/agent/fix-v1.1-source" -Headers $headers
