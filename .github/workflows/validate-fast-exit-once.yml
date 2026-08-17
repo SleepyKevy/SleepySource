@@ -60,10 +60,11 @@ jobs:
               throw 'Could not post WM_CLOSE to SleepySource.'
             }
 
-            if (-not $proc.WaitForExit(3000)) {
-              throw 'SleepySource.exe was still running 3 seconds after WM_CLOSE.'
+            if (-not $proc.WaitForExit(1500)) {
+              throw 'SleepySource.exe was still running 1.5 seconds after WM_CLOSE.'
             }
             $timer.Stop()
+            if ($timer.ElapsedMilliseconds -gt 1500) { throw "SleepySource X-close took $($timer.ElapsedMilliseconds) ms." }
             Write-Host "SleepySource desktop process exited in $($timer.ElapsedMilliseconds) ms after WM_CLOSE with exit code $($proc.ExitCode)."
           }
           finally {
@@ -79,7 +80,7 @@ jobs:
           if (-not $source.Contains('Visible = true')) { throw 'Tray icon is not enabled.' }
           if ($source.Contains('ShowBalloonTip(')) { throw 'Balloon tray notifications should not be used.' }
           if (-not $source.Contains('private const int WM_CLOSE = 0x0010')) { throw 'WM_CLOSE interception is missing.' }
-          if (-not $source.Contains('GracefulExitBudget = TimeSpan.FromMilliseconds(1250)')) { throw 'Fast-exit deadline is missing.' }
-          if (-not $source.Contains('System.Threading.Timer')) { throw 'Independent exit watchdog is missing.' }
+          if (-not $source.Contains('GracefulExitBudgetMs = 500')) { throw '500 ms fast-exit deadline is missing.' }
+          if (-not $source.Contains('new Thread(() =>')) { throw 'Dedicated exit watchdog thread is missing.' }
           if (-not $source.Contains('Kill(entireProcessTree: true)')) { throw 'Process-tree kill fallback is missing.' }
           Write-Host 'Tray and fast-exit source contracts passed.'
