@@ -1,0 +1,47 @@
+name: Diagnose SleepySource CSharp Backup Restore
+
+on:
+  push:
+    branches: [csharp-rewrite-1.0]
+    paths: [.github/workflows/csharp-backup-diagnostic.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: csharp-rewrite-1.0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Instrument hidden backend exceptions in CI copy
+        shell: pwsh
+        run: |
+          $p='CSharpHost/BackendHost.cs';$s=Get-Content $p -Raw
+          $old='catch(Exception ex) when (!ctx.Response.HasStarted)'
+          $new='catch(Exception ex) when (!ctx.Response.HasStarted)'
+          if(($s.Split($old).Count-1)-ne1){throw 'middleware catch marker mismatch'}
+          $s=$s.Replace('var status = ex switch { InvalidDataException => 400, FileNotFoundException => 404, UnauthorizedAccessException => 401, _ => 500 };','Console.Error.WriteLine(ex.ToString()); var status = ex switch { InvalidDataException => 400, FileNotFoundException => 404, UnauthorizedAccessException => 401, _ => 500 };')
+          Set-Content $p $s -Encoding utf8NoBOM
+      - name: Build diagnostic candidate
+        shell: pwsh
+        run: |
+          dotnet restore CSharpHost/SleepySource.csproj -r win-x64
+          dotnet publish CSharpHost/SleepySource.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore -o diag
+      - name: Export and re-import backup
+        shell: pwsh
+        run: |
+          $base='http://127.0.0.1:17891';$out=Join-Path $env:RUNNER_TEMP 'stdout.txt';$err=Join-Path $env:RUNNER_TEMP 'stderr.txt'
+          $p=Start-Process -FilePath (Resolve-Path 'diag/SleepySource.exe') -ArgumentList '--headless' -RedirectStandardOutput $out -RedirectStandardError $err -PassThru
+          try{
+            for($i=0;$i-lt50;$i++){try{if((Invoke-WebRequest "$base/api/health" -UseBasicParsing -TimeoutSec 2).StatusCode-eq200){break}}catch{};Start-Sleep -Milliseconds 400}
+            $s=(Invoke-RestMethod "$base/api/settings").settings;$s.designer_theme='purple';Invoke-RestMethod "$base/api/settings" -Method Post -ContentType 'application/json' -Body ($s|ConvertTo-Json -Depth 100 -Compress)|Out-Null
+            $zip=Join-Path $env:RUNNER_TEMP 'backup.zip';Invoke-WebRequest "$base/api/backup/export" -OutFile $zip -UseBasicParsing
+            $r=Invoke-WebRequest "$base/api/backup/import" -Method Post -Form @{backup=Get-Item $zip} -UseBasicParsing -SkipHttpErrorCheck -TimeoutSec 20
+            Write-Host "IMPORT HTTP $($r.StatusCode): $($r.Content)"
+            if([int]$r.StatusCode-ge400){Start-Sleep -Seconds 1;Write-Host '--- STDERR ---';if(Test-Path $err){Get-Content $err};Write-Host '--- STDOUT ---';if(Test-Path $out){Get-Content $out};throw 'backup import failed'}
+          }finally{if($p-and-not$p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}}
