@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Drawing.Drawing2D;
+using System.Drawing.Text;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
@@ -19,16 +20,15 @@ internal static class Program
 
 internal sealed class SplashTestForm : Form
 {
-    private const int SourceWidth = 1670;
-    private const int SourceHeight = 941;
-    private static readonly RectangleF ButtonSourceRect = new(571, 774, 508, 77);
-    private static readonly RectangleF TitleSourceRect = new(470, 560, 745, 95);
+    private const float DesignWidth = 1670f;
+    private const float DesignHeight = 941f;
+    private static readonly RectangleF ButtonDesign = new(570, 773, 510, 78);
 
-    private readonly Bitmap background;
-    private readonly System.Windows.Forms.Timer animationTimer = new() { Interval = 16 };
+    private readonly Bitmap logo;
+    private readonly System.Windows.Forms.Timer timer = new() { Interval = 16 };
     private readonly Stopwatch clock = Stopwatch.StartNew();
+    private readonly Random random = new(8021);
     private readonly List<Particle> particles = new();
-    private readonly Random random = new(8127);
     private bool hoverButton;
     private bool closing;
     private bool fadeIn = true;
@@ -44,58 +44,55 @@ internal sealed class SplashTestForm : Form
         Text = "SleepySource Splash Test";
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.CenterScreen;
-        BackColor = Color.Black;
+        BackColor = Color.FromArgb(1, 4, 10);
         KeyPreview = true;
         DoubleBuffered = true;
         Opacity = 0;
         ShowInTaskbar = true;
 
         var area = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1920, 1080);
-        var maxWidth = Math.Min(1450, (int)(area.Width * 0.90));
-        var maxHeight = (int)(area.Height * 0.90);
-        var width = maxWidth;
-        var height = (int)Math.Round(width * (SourceHeight / (double)SourceWidth));
+        var width = Math.Min(1450, (int)(area.Width * .9));
+        var height = (int)Math.Round(width * DesignHeight / DesignWidth);
+        var maxHeight = (int)(area.Height * .9);
         if (height > maxHeight)
         {
             height = maxHeight;
-            width = (int)Math.Round(height * (SourceWidth / (double)SourceHeight));
+            width = (int)Math.Round(height * DesignWidth / DesignHeight);
         }
         ClientSize = new Size(Math.Max(900, width), Math.Max(507, height));
 
-        background = LoadEmbeddedSplash();
+        logo = LoadLogo();
         BuildParticles();
 
-        animationTimer.Tick += (_, _) => TickAnimation();
-        animationTimer.Start();
-
+        timer.Tick += (_, _) => TickAnimation();
+        timer.Start();
         MouseMove += OnMouseMove;
-        MouseDown += OnMouseDown;
         MouseLeave += (_, _) => { hoverButton = false; Cursor = Cursors.Default; };
+        MouseDown += OnMouseDown;
         KeyDown += OnKeyDown;
     }
 
-    private static Bitmap LoadEmbeddedSplash()
+    private static Bitmap LoadLogo()
     {
-        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("SleepySource.SplashTest.splash.jpg")
-            ?? throw new InvalidOperationException("Embedded splash artwork is missing.");
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("SleepySource.SplashTest.default.png")
+            ?? throw new InvalidOperationException("The SleepySource logo is missing from the test build.");
         using var image = Image.FromStream(stream);
         return new Bitmap(image);
     }
 
     private void BuildParticles()
     {
-        particles.Clear();
-        for (var i = 0; i < 25; i++)
+        for (var i = 0; i < 31; i++)
         {
             particles.Add(new Particle
             {
-                X = (float)(random.NextDouble() * SourceWidth),
-                Y = (float)(random.NextDouble() * SourceHeight),
-                DX = (float)(-0.11 + random.NextDouble() * 0.22),
-                DY = (float)(-0.10 + random.NextDouble() * 0.15),
-                Size = (float)(0.8 + random.NextDouble() * 2.2),
-                Phase = (float)(random.NextDouble() * Math.PI * 2),
-                Alpha = 18 + random.Next(42)
+                X = (float)(random.NextDouble() * DesignWidth),
+                Y = 45 + (float)(random.NextDouble() * 690),
+                DX = (float)(-0.075 + random.NextDouble() * .15),
+                DY = (float)(-0.06 + random.NextDouble() * .10),
+                Size = .8f + (float)random.NextDouble() * 2.6f,
+                Alpha = random.Next(25, 86),
+                Phase = (float)(random.NextDouble() * Math.PI * 2)
             });
         }
     }
@@ -104,16 +101,15 @@ internal sealed class SplashTestForm : Form
     {
         if (fadeIn)
         {
-            Opacity = Math.Min(1, Opacity + 0.075);
-            if (Opacity >= 0.999) fadeIn = false;
+            Opacity = Math.Min(1, Opacity + .07);
+            if (Opacity >= .999) fadeIn = false;
         }
-
         if (closing)
         {
-            Opacity = Math.Max(0, Opacity - 0.085);
-            if (Opacity <= 0.015)
+            Opacity = Math.Max(0, Opacity - .09);
+            if (Opacity <= .015)
             {
-                animationTimer.Stop();
+                timer.Stop();
                 Close();
                 return;
             }
@@ -123,12 +119,11 @@ internal sealed class SplashTestForm : Form
         {
             p.X += p.DX;
             p.Y += p.DY;
-            if (p.X < -15) p.X = SourceWidth + 15;
-            if (p.X > SourceWidth + 15) p.X = -15;
-            if (p.Y < -15) p.Y = SourceHeight + 15;
-            if (p.Y > SourceHeight + 15) p.Y = -15;
+            if (p.X < -10) p.X = DesignWidth + 10;
+            if (p.X > DesignWidth + 10) p.X = -10;
+            if (p.Y < 20) p.Y = 740;
+            if (p.Y > 760) p.Y = 20;
         }
-
         Invalidate();
     }
 
@@ -140,212 +135,301 @@ internal sealed class SplashTestForm : Form
         g.PixelOffsetMode = PixelOffsetMode.HighQuality;
         g.CompositingQuality = CompositingQuality.HighQuality;
         g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        g.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
 
-        var imageRect = GetImageRect();
-        g.Clear(Color.Black);
-        g.DrawImage(background, imageRect);
-        g.SetClip(imageRect);
+        var stage = GetStage();
+        var state = g.Save();
+        g.SetClip(stage);
+        DrawBackground(g, stage);
 
         var t = clock.Elapsed.TotalSeconds;
-        DrawAmbientFog(g, imageRect, t);
-        DrawParticles(g, imageRect, t);
-        DrawHaloMotion(g, imageRect, t);
-        DrawLogoBreath(g, imageRect, t);
-        DrawHorizonPulse(g, imageRect, t);
-        DrawTitleShimmer(g, imageRect, t);
-        DrawButtonGlow(g, imageRect, t);
-        DrawReadyPulse(g, imageRect, t);
-
-        g.ResetClip();
-    }
-
-    private RectangleF GetImageRect()
-    {
-        var client = ClientRectangle;
-        var scale = Math.Min(client.Width / (float)SourceWidth, client.Height / (float)SourceHeight);
-        var w = SourceWidth * scale;
-        var h = SourceHeight * scale;
-        return new RectangleF((client.Width - w) / 2f, (client.Height - h) / 2f, w, h);
-    }
-
-    private static PointF Map(RectangleF imageRect, float x, float y)
-    {
-        return new PointF(
-            imageRect.Left + x / SourceWidth * imageRect.Width,
-            imageRect.Top + y / SourceHeight * imageRect.Height);
-    }
-
-    private static RectangleF Map(RectangleF imageRect, RectangleF sourceRect)
-    {
-        var p = Map(imageRect, sourceRect.X, sourceRect.Y);
-        return new RectangleF(
-            p.X,
-            p.Y,
-            sourceRect.Width / SourceWidth * imageRect.Width,
-            sourceRect.Height / SourceHeight * imageRect.Height);
-    }
-
-    private void DrawAmbientFog(Graphics g, RectangleF r, double t)
-    {
-        var drift = (float)Math.Sin(t * 0.20) * 22f;
-        var breathe = 0.5f + 0.5f * (float)Math.Sin(t * 0.42);
-        DrawGlow(g, Map(r, 270 + drift, 565), 255, 105, Color.FromArgb(0, 125, 255), 8 + (int)(breathe * 5));
-        DrawGlow(g, Map(r, 1395 - drift * .7f, 555), 280, 110, Color.FromArgb(0, 155, 255), 7 + (int)(breathe * 5));
-        DrawGlow(g, Map(r, 835, 575), 360, 82, Color.FromArgb(0, 150, 255), 10 + (int)(breathe * 7));
-    }
-
-    private void DrawParticles(Graphics g, RectangleF r, double t)
-    {
-        foreach (var p in particles)
-        {
-            var pulse = 0.45 + 0.55 * Math.Sin(t * 0.7 + p.Phase);
-            var alpha = Math.Clamp((int)(p.Alpha * pulse), 4, 70);
-            var pt = Map(r, p.X, p.Y);
-            var size = p.Size / SourceWidth * r.Width;
-            using var glow = new SolidBrush(Color.FromArgb(alpha / 3, 0, 150, 255));
-            using var dot = new SolidBrush(Color.FromArgb(alpha, 75, 200, 255));
-            g.FillEllipse(glow, pt.X - size * 2.2f, pt.Y - size * 2.2f, size * 4.4f, size * 4.4f);
-            g.FillEllipse(dot, pt.X - size / 2f, pt.Y - size / 2f, size, size);
-        }
-    }
-
-    private void DrawHaloMotion(Graphics g, RectangleF r, double t)
-    {
-        var center = Map(r, 835, 337);
-        var scale = r.Width / SourceWidth;
-        var radius = 326f * scale;
-        var rect = new RectangleF(center.X - radius, center.Y - radius, radius * 2, radius * 2);
-        using var pen1 = new Pen(Color.FromArgb(34, 0, 170, 255), Math.Max(1.2f, 1.7f * scale));
-        using var pen2 = new Pen(Color.FromArgb(20, 80, 120, 255), Math.Max(1f, 1.2f * scale));
-        var a = (float)((t * 7.2) % 360);
-        g.DrawArc(pen1, rect, a, 76);
-        g.DrawArc(pen1, rect, a + 132, 48);
-        var inner = RectangleF.Inflate(rect, -28 * scale, -28 * scale);
-        g.DrawArc(pen2, inner, 300 - a * .55f, 92);
-        g.DrawArc(pen2, inner, 90 - a * .55f, 42);
-    }
-
-    private void DrawLogoBreath(Graphics g, RectangleF r, double t)
-    {
-        var pulse = 0.5 + 0.5 * Math.Sin(t * (Math.PI * 2 / 4.6));
-        var center = Map(r, 835, 335);
-        DrawGlow(g, center, 320, 275, Color.FromArgb(0, 174, 255), 9 + (int)(pulse * 10));
-    }
-
-    private void DrawHorizonPulse(Graphics g, RectangleF r, double t)
-    {
-        var pulse = (float)(0.5 + 0.5 * Math.Sin(t * (Math.PI * 2 / 6.2)));
-        var p1 = Map(r, 420, 574);
-        var p2 = Map(r, 1250, 574);
-        var h = Math.Max(2f, 7f / SourceHeight * r.Height);
-        var band = new RectangleF(p1.X, p1.Y - h / 2, p2.X - p1.X, h);
-        using var brush = new LinearGradientBrush(band, Color.Transparent, Color.Transparent, 0f);
-        brush.InterpolationColors = new ColorBlend
-        {
-            Positions = new[] { 0f, .28f, .5f, .72f, 1f },
-            Colors = new[]
-            {
-                Color.Transparent,
-                Color.FromArgb((int)(10 + pulse * 13), 0, 115, 255),
-                Color.FromArgb((int)(28 + pulse * 34), 55, 210, 255),
-                Color.FromArgb((int)(10 + pulse * 13), 0, 115, 255),
-                Color.Transparent
-            }
-        };
-        g.FillRectangle(brush, band);
-    }
-
-    private void DrawTitleShimmer(Graphics g, RectangleF r, double t)
-    {
-        const double period = 11.5;
-        const double duration = 1.25;
-        var phase = t % period;
-        if (phase > duration) return;
-
-        var title = Map(r, TitleSourceRect);
-        var progress = (float)(phase / duration);
-        var sweepWidth = Math.Max(36f, title.Width * .075f);
-        var x = title.Left - sweepWidth + progress * (title.Width + sweepWidth * 2);
-        var sweep = new RectangleF(x, title.Top - 4, sweepWidth, title.Height + 8);
-
-        var state = g.Save();
-        g.SetClip(title);
-        using var brush = new LinearGradientBrush(sweep, Color.Transparent, Color.Transparent, 0f);
-        brush.InterpolationColors = new ColorBlend
-        {
-            Positions = new[] { 0f, .45f, .52f, .60f, 1f },
-            Colors = new[]
-            {
-                Color.Transparent,
-                Color.FromArgb(4, 140, 225, 255),
-                Color.FromArgb(25, 230, 250, 255),
-                Color.FromArgb(4, 140, 225, 255),
-                Color.Transparent
-            }
-        };
-        g.FillRectangle(brush, sweep);
+        DrawAmbientFog(g, stage, t);
+        DrawParticles(g, stage, t);
+        DrawPerspectiveFloor(g, stage, t);
+        DrawHalo(g, stage, t);
+        DrawLogo(g, stage, t);
+        DrawTitle(g, stage, t);
+        DrawTagline(g, stage);
+        DrawFeatures(g, stage);
+        DrawButton(g, stage, t);
+        DrawFooter(g, stage);
+        DrawBuildLabel(g, stage);
+        DrawReady(g, stage, t);
         g.Restore(state);
     }
 
-    private void DrawButtonGlow(Graphics g, RectangleF r, double t)
+    private RectangleF GetStage()
     {
-        var rect = Map(r, ButtonSourceRect);
-        var idle = 0.5 + 0.5 * Math.Sin(t * (Math.PI * 2 / 3.8));
-        var boost = hoverButton ? 1.0 : 0.0;
-        var alpha = (int)(65 + idle * 50 + boost * 75);
-        var scale = r.Width / SourceWidth;
-
-        for (var i = 4; i >= 1; i--)
-        {
-            var expanded = RectangleF.Inflate(rect, i * 2.7f * scale, i * 2.0f * scale);
-            using var pen = new Pen(Color.FromArgb(Math.Max(4, alpha / (i * 5)), 0, 155, 255), Math.Max(1f, i * 1.2f * scale));
-            g.DrawPath(pen, RoundedRect(expanded, 16f * scale));
-        }
-
-        using var border = new Pen(Color.FromArgb(Math.Min(220, alpha), 55, 205, 255), Math.Max(1f, 1.5f * scale));
-        g.DrawPath(border, RoundedRect(rect, 16f * scale));
+        var c = ClientRectangle;
+        var scale = Math.Min(c.Width / DesignWidth, c.Height / DesignHeight);
+        var w = DesignWidth * scale;
+        var h = DesignHeight * scale;
+        return new RectangleF((c.Width - w) / 2f, (c.Height - h) / 2f, w, h);
     }
 
-    private void DrawReadyPulse(Graphics g, RectangleF r, double t)
+    private static PointF P(RectangleF s, float x, float y) =>
+        new(s.Left + x / DesignWidth * s.Width, s.Top + y / DesignHeight * s.Height);
+
+    private static RectangleF R(RectangleF s, RectangleF r)
     {
-        var center = Map(r, 1523, 43);
-        var scale = r.Width / SourceWidth;
-        var pulse = (float)(0.5 + 0.5 * Math.Sin(t * (Math.PI * 2 / 2.2)));
-        var radius = (8 + 4 * pulse) * scale;
-        using var glow = new SolidBrush(Color.FromArgb((int)(20 + pulse * 42), 28, 255, 165));
+        var p = P(s, r.X, r.Y);
+        return new RectangleF(p.X, p.Y, r.Width / DesignWidth * s.Width, r.Height / DesignHeight * s.Height);
+    }
+
+    private static float Scale(RectangleF s) => s.Width / DesignWidth;
+
+    private static void DrawBackground(Graphics g, RectangleF s)
+    {
+        using var bg = new LinearGradientBrush(s, Color.FromArgb(1, 4, 12), Color.FromArgb(2, 9, 24), 90f);
+        g.FillRectangle(bg, s);
+        DrawGlow(g, P(s, 835, 285), 690 * Scale(s), 430 * Scale(s), Color.FromArgb(0, 75, 190), 58);
+        DrawGlow(g, P(s, 835, 575), 610 * Scale(s), 125 * Scale(s), Color.FromArgb(0, 128, 255), 42);
+    }
+
+    private static void DrawAmbientFog(Graphics g, RectangleF s, double t)
+    {
+        var drift = (float)Math.Sin(t * .19) * 24;
+        var pulse = .5f + .5f * (float)Math.Sin(t * .42);
+        DrawGlow(g, P(s, 270 + drift, 545), 315 * Scale(s), 118 * Scale(s), Color.FromArgb(0, 115, 245), 18 + (int)(pulse * 10));
+        DrawGlow(g, P(s, 1390 - drift * .7f, 545), 315 * Scale(s), 118 * Scale(s), Color.FromArgb(0, 150, 255), 16 + (int)(pulse * 9));
+    }
+
+    private void DrawParticles(Graphics g, RectangleF s, double t)
+    {
+        foreach (var p in particles)
+        {
+            var twinkle = .42 + .58 * Math.Sin(t * .75 + p.Phase);
+            var alpha = Math.Clamp((int)(p.Alpha * twinkle), 7, 92);
+            var pt = P(s, p.X, p.Y);
+            var size = p.Size * Scale(s);
+            using var glow = new SolidBrush(Color.FromArgb(alpha / 4, 0, 155, 255));
+            using var dot = new SolidBrush(Color.FromArgb(alpha, 65, 190, 255));
+            g.FillEllipse(glow, pt.X - size * 2.5f, pt.Y - size * 2.5f, size * 5, size * 5);
+            g.FillEllipse(dot, pt.X - size / 2, pt.Y - size / 2, size, size);
+        }
+    }
+
+    private static void DrawPerspectiveFloor(Graphics g, RectangleF s, double t)
+    {
+        var scale = Scale(s);
+        var horizon = P(s, 835, 595);
+        using var horizonPen = new Pen(Color.FromArgb(65, 0, 145, 255), Math.Max(1f, 1.3f * scale));
+        g.DrawLine(horizonPen, P(s, 0, 595), P(s, 1670, 595));
+
+        using var rayPen = new Pen(Color.FromArgb(25, 0, 110, 255), Math.Max(.7f, scale));
+        for (var i = -8; i <= 8; i++)
+        {
+            var bottom = P(s, 835 + i * 110, 941);
+            g.DrawLine(rayPen, horizon, bottom);
+        }
+        var offset = (float)(t * 10 % 50);
+        for (var y = 645f + offset; y < 941; y += 55)
+        {
+            var fade = Math.Clamp((int)(18 + (y - 645) / 296 * 22), 12, 42);
+            using var line = new Pen(Color.FromArgb(fade, 0, 100, 220), Math.Max(.6f, scale));
+            g.DrawLine(line, P(s, 0, y), P(s, 1670, y));
+        }
+    }
+
+    private static void DrawHalo(Graphics g, RectangleF s, double t)
+    {
+        var scale = Scale(s);
+        var center = P(s, 835, 327);
+        var radius = 290 * scale;
+        var ring = new RectangleF(center.X - radius, center.Y - radius, radius * 2, radius * 2);
+        var a = (float)(t * 6.5 % 360);
+        using var p1 = new Pen(Color.FromArgb(38, 0, 176, 255), Math.Max(1f, 1.6f * scale));
+        using var p2 = new Pen(Color.FromArgb(21, 50, 105, 255), Math.Max(.8f, 1.15f * scale));
+        g.DrawArc(p1, ring, a, 72);
+        g.DrawArc(p1, ring, a + 122, 51);
+        g.DrawArc(p1, ring, a + 244, 38);
+        var inner = RectangleF.Inflate(ring, -28 * scale, -28 * scale);
+        g.DrawArc(p2, inner, 300 - a * .55f, 95);
+        g.DrawArc(p2, inner, 90 - a * .55f, 48);
+    }
+
+    private void DrawLogo(Graphics g, RectangleF s, double t)
+    {
+        var scale = Scale(s);
+        var pulse = .5f + .5f * (float)Math.Sin(t * Math.PI * 2 / 4.6);
+        var center = P(s, 835, 323);
+        var logoSize = 430 * scale;
+        DrawGlow(g, center, (240 + pulse * 18) * scale, (230 + pulse * 18) * scale, Color.FromArgb(0, 185, 255), 37 + (int)(pulse * 18));
+        var rect = new RectangleF(center.X - logoSize / 2, center.Y - logoSize / 2, logoSize, logoSize);
+        g.DrawImage(logo, rect);
+    }
+
+    private static void DrawTitle(Graphics g, RectangleF s, double t)
+    {
+        var scale = Scale(s);
+        using var font = new Font("Segoe UI", 64 * scale, FontStyle.Bold, GraphicsUnit.Pixel);
+        const string text = "SleepySource";
+        var size = g.MeasureString(text, font);
+        var pos = P(s, 835, 565);
+        var rect = new RectangleF(pos.X - size.Width / 2, pos.Y, size.Width, size.Height);
+        using var fill = new LinearGradientBrush(rect, Color.FromArgb(250, 252, 255), Color.FromArgb(113, 191, 255), 90f);
+        using var shadow = new SolidBrush(Color.FromArgb(30, 0, 150, 255));
+        g.DrawString(text, font, shadow, rect.X + 2 * scale, rect.Y + 3 * scale);
+        g.DrawString(text, font, fill, rect.Location);
+
+        using var tmFont = new Font("Segoe UI", 18 * scale, FontStyle.Bold, GraphicsUnit.Pixel);
+        using var tmBrush = new SolidBrush(Color.FromArgb(210, 213, 230, 255));
+        g.DrawString("™", tmFont, tmBrush, rect.Right + 3 * scale, rect.Top + 2 * scale);
+
+        var period = 11.5;
+        var phase = t % period;
+        if (phase < 1.25)
+        {
+            var progress = (float)(phase / 1.25);
+            var sweepX = rect.Left - 45 * scale + progress * (rect.Width + 90 * scale);
+            var sweep = new RectangleF(sweepX, rect.Top, 55 * scale, rect.Height);
+            var saved = g.Save();
+            g.SetClip(rect);
+            using var sh = new LinearGradientBrush(sweep, Color.Transparent, Color.Transparent, 0f);
+            sh.InterpolationColors = new ColorBlend
+            {
+                Positions = new[] { 0f, .45f, .52f, .60f, 1f },
+                Colors = new[] { Color.Transparent, Color.FromArgb(8, 130, 220, 255), Color.FromArgb(38, 240, 252, 255), Color.FromArgb(8, 130, 220, 255), Color.Transparent }
+            };
+            g.FillRectangle(sh, sweep);
+            g.Restore(saved);
+        }
+    }
+
+    private static void DrawTagline(Graphics g, RectangleF s)
+    {
+        var scale = Scale(s);
+        using var font = new Font("Segoe UI", 24 * scale, FontStyle.Regular, GraphicsUnit.Pixel);
+        using var brush = new SolidBrush(Color.FromArgb(220, 91, 205, 255));
+        DrawCentered(g, "Streaming Tools, All in One Place", font, brush, P(s, 835, 680));
+        using var pen = new Pen(Color.FromArgb(85, 0, 145, 255), Math.Max(1f, scale));
+        g.DrawLine(pen, P(s, 420, 693), P(s, 560, 693));
+        g.DrawLine(pen, P(s, 1110, 693), P(s, 1250, 693));
+    }
+
+    private static void DrawFeatures(Graphics g, RectangleF s)
+    {
+        var scale = Scale(s);
+        using var font = new Font("Segoe UI", 18 * scale, FontStyle.Regular, GraphicsUnit.Pixel);
+        using var main = new SolidBrush(Color.FromArgb(205, 199, 213, 235));
+        using var cyan = new SolidBrush(Color.FromArgb(235, 35, 190, 255));
+        var labels = new[] { "Now Playing", "Chat Overlay", "Countdown Pro", "Kick Integration" };
+        var widths = labels.Select(x => g.MeasureString(x, font).Width).ToArray();
+        var dotWidth = g.MeasureString("  •  ", font).Width;
+        var total = widths.Sum() + dotWidth * 3;
+        var x = P(s, 835, 725).X - total / 2;
+        var y = P(s, 835, 725).Y;
+        for (var i = 0; i < labels.Length; i++)
+        {
+            g.DrawString(labels[i], font, main, x, y);
+            x += widths[i];
+            if (i < labels.Length - 1)
+            {
+                g.DrawString("  •  ", font, cyan, x, y);
+                x += dotWidth;
+            }
+        }
+    }
+
+    private void DrawButton(Graphics g, RectangleF s, double t)
+    {
+        var scale = Scale(s);
+        var rect = R(s, ButtonDesign);
+        var pulse = .5f + .5f * (float)Math.Sin(t * Math.PI * 2 / 3.8);
+        var boost = hoverButton ? 1f : 0f;
+        var glowAlpha = (int)(35 + pulse * 30 + boost * 65);
+
+        for (var i = 5; i >= 1; i--)
+        {
+            var grow = RectangleF.Inflate(rect, i * 3 * scale, i * 2.2f * scale);
+            using var glowPen = new Pen(Color.FromArgb(Math.Max(3, glowAlpha / (i * 3)), 0, 145, 255), Math.Max(1f, i * scale));
+            using var path = Round(grow, 16 * scale);
+            g.DrawPath(glowPen, path);
+        }
+
+        using var pathMain = Round(rect, 16 * scale);
+        using var bg = new LinearGradientBrush(rect,
+            hoverButton ? Color.FromArgb(228, 8, 36, 72) : Color.FromArgb(225, 4, 24, 53),
+            Color.FromArgb(242, 2, 11, 28), 90f);
+        g.FillPath(bg, pathMain);
+        using var border = new Pen(Color.FromArgb(hoverButton ? 235 : 190, 32, 177, 255), Math.Max(1f, 1.6f * scale));
+        g.DrawPath(border, pathMain);
+
+        using var font = new Font("Segoe UI", 25 * scale, FontStyle.Regular, GraphicsUnit.Pixel);
+        using var text = new SolidBrush(Color.FromArgb(244, 232, 244, 255));
+        DrawCentered(g, "Open SleepySource", font, text, new PointF(rect.Left + rect.Width / 2, rect.Top + 21 * scale));
+    }
+
+    private static void DrawFooter(Graphics g, RectangleF s)
+    {
+        var scale = Scale(s);
+        using var font = new Font("Segoe UI", 18 * scale, FontStyle.Regular, GraphicsUnit.Pixel);
+        using var brush = new SolidBrush(Color.FromArgb(180, 91, 149, 210));
+        DrawCentered(g, "Made by SleepyKev  •  2026", font, brush, P(s, 835, 882));
+    }
+
+    private static void DrawBuildLabel(Graphics g, RectangleF s)
+    {
+        var scale = Scale(s);
+        var rect = R(s, new RectangleF(26, 27, 170, 38));
+        using var path = Round(rect, 6 * scale);
+        using var bg = new SolidBrush(Color.FromArgb(80, 2, 13, 31));
+        using var pen = new Pen(Color.FromArgb(110, 39, 154, 255), Math.Max(1f, scale));
+        g.FillPath(bg, path);
+        g.DrawPath(pen, path);
+        using var font = new Font("Segoe UI", 16 * scale, FontStyle.Regular, GraphicsUnit.Pixel);
+        using var brush = new SolidBrush(Color.FromArgb(205, 95, 180, 235));
+        g.DrawString("Splash Test Build", font, brush, rect.Left + 10 * scale, rect.Top + 8 * scale);
+    }
+
+    private static void DrawReady(Graphics g, RectangleF s, double t)
+    {
+        var scale = Scale(s);
+        var pulse = .5f + .5f * (float)Math.Sin(t * Math.PI * 2 / 2.2);
+        var center = P(s, 1526, 43);
+        var radius = (9 + pulse * 5) * scale;
+        using var glow = new SolidBrush(Color.FromArgb((int)(18 + pulse * 52), 20, 255, 162));
+        using var dot = new SolidBrush(Color.FromArgb(245, 28, 239, 145));
         g.FillEllipse(glow, center.X - radius, center.Y - radius, radius * 2, radius * 2);
+        var d = 7 * scale;
+        g.FillEllipse(dot, center.X - d / 2, center.Y - d / 2, d, d);
+        using var font = new Font("Segoe UI", 17 * scale, FontStyle.Regular, GraphicsUnit.Pixel);
+        using var brush = new SolidBrush(Color.FromArgb(245, 45, 245, 160));
+        g.DrawString("Ready", font, brush, center.X + 14 * scale, center.Y - 11 * scale);
     }
 
-    private static void DrawGlow(Graphics g, PointF center, float sourceRadiusX, float sourceRadiusY, Color color, int strength)
+    private static void DrawCentered(Graphics g, string value, Font font, Brush brush, PointF centerTop)
     {
-        var scaleX = g.VisibleClipBounds.Width / SourceWidth;
-        var scaleY = g.VisibleClipBounds.Height / SourceHeight;
-        var rx = sourceRadiusX * scaleX;
-        var ry = sourceRadiusY * scaleY;
-        for (var i = 9; i >= 1; i--)
+        var size = g.MeasureString(value, font);
+        g.DrawString(value, font, brush, centerTop.X - size.Width / 2, centerTop.Y);
+    }
+
+    private static GraphicsPath Round(RectangleF rect, float radius)
+    {
+        var d = Math.Min(radius * 2, Math.Min(rect.Width, rect.Height));
+        var p = new GraphicsPath();
+        p.AddArc(rect.Left, rect.Top, d, d, 180, 90);
+        p.AddArc(rect.Right - d, rect.Top, d, d, 270, 90);
+        p.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
+        p.AddArc(rect.Left, rect.Bottom - d, d, d, 90, 90);
+        p.CloseFigure();
+        return p;
+    }
+
+    private static void DrawGlow(Graphics g, PointF center, float rx, float ry, Color color, int strength)
+    {
+        for (var i = 10; i >= 1; i--)
         {
-            var f = i / 9f;
-            var alpha = Math.Clamp((int)(strength * (1f - f) * .65f), 1, 32);
-            using var brush = new SolidBrush(Color.FromArgb(alpha, color.R, color.G, color.B));
-            g.FillEllipse(brush, center.X - rx * f, center.Y - ry * f, rx * f * 2, ry * f * 2);
+            var f = i / 10f;
+            var alpha = Math.Clamp((int)(strength * Math.Pow(1 - f, 1.45)), 1, 70);
+            using var b = new SolidBrush(Color.FromArgb(alpha, color.R, color.G, color.B));
+            g.FillEllipse(b, center.X - rx * f, center.Y - ry * f, rx * f * 2, ry * f * 2);
         }
-    }
-
-    private static GraphicsPath RoundedRect(RectangleF rect, float radius)
-    {
-        var d = Math.Min(Math.Min(radius * 2, rect.Width), rect.Height);
-        var path = new GraphicsPath();
-        path.AddArc(rect.Left, rect.Top, d, d, 180, 90);
-        path.AddArc(rect.Right - d, rect.Top, d, d, 270, 90);
-        path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
-        path.AddArc(rect.Left, rect.Bottom - d, d, d, 90, 90);
-        path.CloseFigure();
-        return path;
     }
 
     private void OnMouseMove(object? sender, MouseEventArgs e)
     {
-        var hit = Map(GetImageRect(), ButtonSourceRect).Contains(e.Location);
+        var hit = R(GetStage(), ButtonDesign).Contains(e.Location);
         if (hit == hoverButton) return;
         hoverButton = hit;
         Cursor = hit ? Cursors.Hand : Cursors.Default;
@@ -355,24 +439,18 @@ internal sealed class SplashTestForm : Form
     private void OnMouseDown(object? sender, MouseEventArgs e)
     {
         if (e.Button != MouseButtons.Left) return;
-        if (Map(GetImageRect(), ButtonSourceRect).Contains(e.Location))
+        if (R(GetStage(), ButtonDesign).Contains(e.Location))
         {
             BeginClose();
             return;
         }
-
         ReleaseCapture();
         _ = SendMessage(Handle, 0xA1, (IntPtr)0x2, IntPtr.Zero);
     }
 
     private void OnKeyDown(object? sender, KeyEventArgs e)
     {
-        if (e.KeyCode == Keys.Enter)
-        {
-            e.Handled = true;
-            BeginClose();
-        }
-        else if (e.KeyCode == Keys.Escape)
+        if (e.KeyCode is Keys.Enter or Keys.Escape)
         {
             e.Handled = true;
             BeginClose();
@@ -381,16 +459,15 @@ internal sealed class SplashTestForm : Form
 
     private void BeginClose()
     {
-        if (closing) return;
-        closing = true;
+        if (!closing) closing = true;
     }
 
     protected override void Dispose(bool disposing)
     {
         if (disposing)
         {
-            animationTimer.Dispose();
-            background.Dispose();
+            timer.Dispose();
+            logo.Dispose();
         }
         base.Dispose(disposing);
     }
@@ -402,7 +479,7 @@ internal sealed class SplashTestForm : Form
         public float DX;
         public float DY;
         public float Size;
-        public float Phase;
         public int Alpha;
+        public float Phase;
     }
 }
