@@ -1,0 +1,281 @@
+name: SleepySource 1.0 Go to C# Mutation Parity
+
+on:
+  push:
+    branches:
+      - csharp-rewrite-1.0
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutation-parity:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout pure C# rewrite
+        uses: actions/checkout@v4
+        with:
+          ref: csharp-rewrite-1.0
+          path: current
+
+      - name: Checkout frozen Go migration baseline
+        uses: actions/checkout@v4
+        with:
+          ref: 1855c75291fbdad13ee0272b222d37cefbc83f4d
+          path: baseline
+
+      - name: Use .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Use Go 1.23
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+
+      - name: Build frozen Go reference
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item go-mut -ItemType Directory -Force | Out-Null
+          Push-Location baseline/CompatibilityEngine
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { throw 'Go reference tests failed.' }
+          go build -o ../../go-mut/SleepySource.Engine.exe .
+          if ($LASTEXITCODE -ne 0) { throw 'Go reference build failed.' }
+          Pop-Location
+          Copy-Item baseline/CompatibilityEngine/web go-mut/web -Recurse
+          Copy-Item baseline/CompatibilityEngine/assets go-mut/assets -Recurse
+
+      - name: Build pure C# candidate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet restore current/CSharpHost/SleepySource.csproj -r win-x64
+          dotnet publish current/CSharpHost/SleepySource.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore -o csharp-mut
+          if (-not (Test-Path csharp-mut/SleepySource.exe)) { throw 'Pure C# executable missing.' }
+          if (Test-Path csharp-mut/SleepySource.Engine.exe) { throw 'Legacy Go engine leaked into C# output.' }
+
+      - name: Run identical mutation and persistence scenarios
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = 'http://127.0.0.1:17891'
+
+          function Wait-Ready($proc) {
+            for ($i = 0; $i -lt 50; $i++) {
+              if ($proc.HasExited) { throw "Backend exited before ready. Exit code: $($proc.ExitCode)" }
+              try {
+                $r = Invoke-WebRequest "$base/api/health" -UseBasicParsing -TimeoutSec 2
+                if ($r.StatusCode -eq 200) { return }
+              } catch { }
+              Start-Sleep -Milliseconds 400
+            }
+            throw 'Backend did not become ready.'
+          }
+
+          function Start-Backend([string]$exe, [string]$arg) {
+            $p = Start-Process -FilePath (Resolve-Path $exe) -ArgumentList $arg -PassThru
+            Wait-Ready $p
+            return $p
+          }
+
+          function Stop-Backend($p) {
+            if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+            Start-Sleep -Milliseconds 900
+          }
+
+          function Get-J([string]$path) {
+            return Invoke-RestMethod ($base + $path) -Method Get -TimeoutSec 8
+          }
+
+          function Post-J([string]$path, $body) {
+            $json = $body | ConvertTo-Json -Depth 100 -Compress
+            return Invoke-RestMethod ($base + $path) -Method Post -ContentType 'application/json' -Body $json -TimeoutSec 10
+          }
+
+          function Post-Status([string]$path, $body) {
+            $json = $body | ConvertTo-Json -Depth 100 -Compress
+            try {
+              $r = Invoke-WebRequest ($base + $path) -Method Post -ContentType 'application/json' -Body $json -TimeoutSec 8 -UseBasicParsing
+              return [int]$r.StatusCode
+            }
+            catch {
+              if ($_.Exception.Response -and $_.Exception.Response.StatusCode) { return [int]$_.Exception.Response.StatusCode }
+              throw
+            }
+          }
+
+          function Assert-True([bool]$condition, [string]$message) {
+            if (-not $condition) { throw $message }
+          }
+
+          function Run-Scenario([string]$name, [string]$exe, [string]$arg) {
+            Write-Host "===== MUTATION SCENARIO: $name ====="
+            $p = $null
+            try {
+              $p = Start-Backend $exe $arg
+
+              # Main settings save.
+              $state = Get-J '/api/settings'
+              $settings = $state.settings
+              $settings.designer_theme = 'purple'
+              $settings.text_size = 37
+              $settings.show_progress = $false
+              $saved = Post-J '/api/settings' $settings
+              Assert-True ($saved.settings.designer_theme -eq 'purple') "$name main settings theme did not save"
+              Assert-True ([int]$saved.settings.text_size -eq 37) "$name main text size did not save"
+              Assert-True (-not [bool]$saved.settings.show_progress) "$name main progress flag did not save"
+
+              # Chat settings, message ingest/test, and clear.
+              $chatSettings = Get-J '/api/chat/settings'
+              $chatSettings.font_size = 29
+              $chatSettings.background_opacity = 61
+              $chatSaved = Post-J '/api/chat/settings' $chatSettings
+              Assert-True ([int]$chatSaved.font_size -eq 29) "$name chat font size did not save"
+              Assert-True ([int]$chatSaved.background_opacity -eq 61) "$name chat opacity did not save"
+              $chatTest = Post-J '/api/chat/test' @{ username='ParityChatter'; text='Mutation parity chat'; user_id='4242' }
+              Assert-True (($chatTest.messages | Where-Object { $_.username -eq 'ParityChatter' -and $_.text -eq 'Mutation parity chat' }).Count -ge 1) "$name chat test message was not stored"
+              $clear = Invoke-WebRequest "$base/api/chat/clear" -Method Post -UseBasicParsing -TimeoutSec 8
+              Assert-True ([int]$clear.StatusCode -in @(200,204)) "$name chat clear failed"
+              $chatAfterClear = Get-J '/api/chat/state'
+              Assert-True ($null -eq $chatAfterClear.messages -or @($chatAfterClear.messages).Count -eq 0) "$name chat clear left messages behind"
+
+              # Countdown settings, controls, and profile persistence.
+              $cdState = Get-J '/api/countdown/state'
+              $cdSettings = $cdState.settings
+              $cdSettings.minutes = 1
+              $cdSettings.seconds = 7
+              $cdSettings.prefix = 'CI '
+              $cdSaved = Post-J '/api/countdown/settings' $cdSettings
+              Assert-True ([int]$cdSaved.settings.minutes -eq 1 -and [int]$cdSaved.settings.seconds -eq 7) "$name countdown settings did not save"
+              $null = Post-J '/api/countdown/profiles' @{ action='save'; name='CI_Countdown' }
+              $cdProfiles = Get-J '/api/countdown/profiles'
+              Assert-True (($cdProfiles.profiles | Where-Object { $_.name -eq 'CI_Countdown' }).Count -eq 1) "$name countdown profile save failed"
+              $started = Post-J '/api/countdown/control' @{ action='start' }
+              Assert-True ([bool]$started.running) "$name countdown did not start"
+              Start-Sleep -Milliseconds 150
+              $paused = Post-J '/api/countdown/control' @{ action='pause' }
+              Assert-True ([bool]$paused.paused) "$name countdown did not pause"
+              $reset = Post-J '/api/countdown/control' @{ action='reset' }
+              Assert-True (-not [bool]$reset.running -and -not [bool]$reset.paused) "$name countdown reset failed"
+
+              # Alert settings/defaults, queue, exact overlay consumption, and clear.
+              $defaults = Get-J '/api/alerts/settings?defaults=1'
+              Assert-True ($null -ne $defaults.types.follow) "$name alert defaults endpoint failed"
+              $alertSettings = Get-J '/api/alerts/settings'
+              $alertSettings.queue_limit = 7
+              $alertSaved = Post-J '/api/alerts/settings' $alertSettings
+              Assert-True ([int]$alertSaved.queue_limit -eq 7) "$name alert queue limit did not save"
+              $queued = Post-J '/api/alerts/test' @{ type='follow'; username='ParityFollower' }
+              Assert-True ([int]$queued.queue_depth -eq 1) "$name alert test did not queue"
+              $peek = Get-J '/api/alerts/state?consume=0'
+              Assert-True ([int]$peek.queue_depth -eq 1 -and $null -eq $peek.current) "$name non-overlay alert state consumed unexpectedly"
+              $consumed = Get-J '/api/alerts/state?consumer=overlay'
+              Assert-True ([int]$consumed.queue_depth -eq 0 -and $consumed.current.event.username -eq 'ParityFollower') "$name overlay alert consumption failed"
+              $clearedAlert = Post-J '/api/alerts/control' @{ action='clear' }
+              Assert-True ([int]$clearedAlert.queue_depth -eq 0 -and $null -eq $clearedAlert.current) "$name alert clear failed"
+
+              # Workspace profile CRUD and default marker behavior.
+              $null = Post-J '/api/profiles' @{ action='save'; name='CI_Profile' }
+              $null = Post-J '/api/profiles' @{ action='duplicate'; name='CI_Profile'; new_name='CI_Profile_Copy' }
+              $null = Post-J '/api/profiles' @{ action='rename'; name='CI_Profile_Copy'; new_name='CI_Profile_Renamed' }
+              $null = Post-J '/api/profiles' @{ action='set_default'; name='CI_Profile_Renamed' }
+              $profileList = Get-J '/api/profiles'
+              Assert-True (($profileList | Where-Object { $_.name -eq 'CI_Profile' }).Count -eq 1) "$name source profile missing"
+              Assert-True (($profileList | Where-Object { $_.name -eq 'CI_Profile_Renamed' -and $_.default }).Count -eq 1) "$name profile rename/default failed"
+              $null = Post-J '/api/profiles' @{ action='clear_default'; name='' }
+              $null = Post-J '/api/profiles' @{ action='delete'; name='CI_Profile_Renamed' }
+              $profileFinal = Get-J '/api/profiles'
+              Assert-True (($profileFinal | Where-Object { $_.name -eq 'CI_Profile' }).Count -eq 1) "$name retained profile missing"
+              Assert-True (($profileFinal | Where-Object { $_.name -eq 'CI_Profile_Renamed' }).Count -eq 0) "$name deleted profile still exists"
+
+              # Backup round-trip should restore settings changed after export.
+              $backupPath = Join-Path (Resolve-Path '.').Path ("$name-backup.zip")
+              Invoke-WebRequest "$base/api/backup/export" -OutFile $backupPath -TimeoutSec 15 -UseBasicParsing
+              Assert-True ((Get-Item $backupPath).Length -gt 100) "$name backup export was empty"
+              $changed = (Get-J '/api/settings').settings
+              $changed.designer_theme = 'red'
+              $null = Post-J '/api/settings' $changed
+              Assert-True ((Get-J '/api/settings').settings.designer_theme -eq 'red') "$name pre-restore mutation failed"
+              $restore = Invoke-WebRequest "$base/api/backup/import" -Method Post -Form @{ backup = Get-Item $backupPath } -TimeoutSec 20 -UseBasicParsing
+              Assert-True ([int]$restore.StatusCode -eq 200) "$name backup import failed"
+              Assert-True ((Get-J '/api/settings').settings.designer_theme -eq 'purple') "$name backup did not restore main settings"
+
+              # Offline/no-credential behavior must remain deterministic and network-free.
+              $connectStatus = Post-Status '/api/chat/connect' @{ channel='ci-no-credentials' }
+              $streamStartStatus = Post-Status '/api/stream/auth/start' @{}
+              $streamUpdateStatus = Post-Status '/api/stream/update' @{ title='CI test'; category_id=1; category_name='Just Chatting' }
+              Assert-True ($connectStatus -eq 412) "$name no-credential chat connect returned $connectStatus instead of 412"
+              Assert-True ($streamStartStatus -eq 412) "$name no-credential stream auth returned $streamStartStatus instead of 412"
+              Assert-True ($streamUpdateStatus -eq 412) "$name no-credential stream update returned $streamUpdateStatus instead of 412"
+
+              # Restart same executable and confirm disk persistence.
+              Stop-Backend $p
+              $p = Start-Backend $exe $arg
+              $after = Get-J '/api/settings'
+              $chatAfter = Get-J '/api/chat/settings'
+              $cdAfter = Get-J '/api/countdown/state'
+              $alertAfter = Get-J '/api/alerts/settings'
+              $profilesAfter = Get-J '/api/profiles'
+
+              Assert-True ($after.settings.designer_theme -eq 'purple') "$name main settings did not persist across restart"
+              Assert-True ([int]$after.settings.text_size -eq 37) "$name main numeric setting did not persist across restart"
+              Assert-True ([int]$chatAfter.font_size -eq 29 -and [int]$chatAfter.background_opacity -eq 61) "$name chat settings did not persist across restart"
+              Assert-True ([int]$cdAfter.settings.minutes -eq 1 -and [int]$cdAfter.settings.seconds -eq 7 -and $cdAfter.settings.prefix -eq 'CI ') "$name countdown settings did not persist across restart"
+              Assert-True ([int]$alertAfter.queue_limit -eq 7) "$name alert settings did not persist across restart"
+              Assert-True (($profilesAfter | Where-Object { $_.name -eq 'CI_Profile' }).Count -eq 1) "$name workspace profile did not persist across restart"
+
+              $summary = [ordered]@{
+                main_theme = $after.settings.designer_theme
+                main_text_size = [int]$after.settings.text_size
+                main_show_progress = [bool]$after.settings.show_progress
+                chat_font_size = [int]$chatAfter.font_size
+                chat_background_opacity = [int]$chatAfter.background_opacity
+                countdown_minutes = [int]$cdAfter.settings.minutes
+                countdown_seconds = [int]$cdAfter.settings.seconds
+                countdown_prefix = [string]$cdAfter.settings.prefix
+                countdown_profile = [bool](($cdAfter.profiles | Where-Object { $_.name -eq 'CI_Countdown' }).Count -eq 1)
+                alert_queue_limit = [int]$alertAfter.queue_limit
+                workspace_profiles = @($profilesAfter | ForEach-Object { $_.name } | Sort-Object)
+                no_credential_chat_connect = $connectStatus
+                no_credential_stream_auth = $streamStartStatus
+                no_credential_stream_update = $streamUpdateStatus
+                backup_restored_theme = [string]$after.settings.designer_theme
+              }
+              New-Item mutation-results -ItemType Directory -Force | Out-Null
+              $summary | ConvertTo-Json -Depth 10 | Set-Content "mutation-results/$name.json" -Encoding utf8NoBOM
+            }
+            finally {
+              Stop-Backend $p
+            }
+          }
+
+          Run-Scenario 'go' 'go-mut/SleepySource.Engine.exe' '--engine-only'
+          Run-Scenario 'csharp' 'csharp-mut/SleepySource.exe' '--headless'
+
+      - name: Compare normalized mutation summaries
+        shell: pwsh
+        run: |
+          @'
+          import json, pathlib, sys
+          g=json.loads(pathlib.Path('mutation-results/go.json').read_text(encoding='utf-8-sig'))
+          c=json.loads(pathlib.Path('mutation-results/csharp.json').read_text(encoding='utf-8-sig'))
+          if g != c:
+              print('GO SUMMARY:', json.dumps(g,indent=2,sort_keys=True))
+              print('C# SUMMARY:', json.dumps(c,indent=2,sort_keys=True))
+              sys.exit(1)
+          print('Mutating behavior and restart persistence summaries match exactly.')
+          print(json.dumps(c,indent=2,sort_keys=True))
+          '@ | python -
+
+      - name: Upload mutation parity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SleepySource-1.0-Go-CSharp-Mutation-Parity
+          path: mutation-results/
+          if-no-files-found: ignore
