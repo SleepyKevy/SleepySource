@@ -1,0 +1,40 @@
+SLEEPYSOURCE 1.0 BETA — MIGRATION NOTES
+=======================================
+
+Purpose
+-------
+This beta is a separate migration line for moving SleepySource from the original Go desktop architecture to C#/.NET + WebView2 without changing the user-facing SleepySource design or OBS workflow.
+
+C#/.NET already owns
+--------------------
+- Main Windows process and executable
+- Single-instance behavior
+- Native window lifecycle
+- WebView2 hosting
+- Splash-to-dashboard transition
+- System tray menu
+- Open SleepySource_Data action
+- Startup/shutdown of the compatibility engine
+- Protection against connecting to a different SleepySource instance already using port 17891
+
+Temporary compatibility engine
+------------------------------
+The backend in this first full beta is the SleepySource 1.3.2 backend running headlessly. This preserves the working API contracts and OBS routes while backend services are migrated to C# individually.
+
+The compatibility engine currently retains:
+- Settings and portable data persistence
+- Now Playing / Windows media-session detection
+- Chat state and Kick integration
+- Kick webhooks and user authorization
+- Alert Studio queue/settings/media
+- Countdown Pro
+- Profiles and portable profile bundles
+- Backup/import/export
+- Cloudflare relay management
+- System Health
+- Stream title/category controls
+- Local HTTP/OBS server
+
+Target architecture
+-------------------
+The compatibility engine is transitional. The intended end state is a pure C#/.NET backend with the same routes, JSON formats, SleepySource_Data compatibility, UI, and OBS URLs so the engine executable can be removed without changing the user's workflow.

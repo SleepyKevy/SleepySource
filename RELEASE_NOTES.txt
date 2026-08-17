@@ -1,0 +1,25 @@
+SLEEPYSOURCE™ 1.0 BETA — RELEASE NOTES
+========================================
+Made by SleepyKev • 2026
+
+Branding update
+---------------
+- Added the ™ mark to the visible SleepySource brand wordmark.
+- Added SleepySource™ branding to the splash screen.
+- Added SleepySource™ branding to About / Help.
+- Added the trademark treatment to README and release notes.
+- Installer and application metadata are intentionally unchanged for now.
+
+Desktop navigation update
+-------------------------
+- Mouse Back and Forward side buttons are blocked inside the C# desktop host so SleepySource does not navigate like a normal web browser.
+
+Mouse navigation fix
+- Blocks both XBUTTON mouse events and Windows browser Back/Forward app commands before WebView2 can navigate.
+
+- Back/Forward browser history navigation is now blocked inside WebView2 itself, and dashboard history is cleared after startup so mouse browser buttons cannot move between app pages.
+Desktop behavior update:
+- Minimizing SleepySource now keeps its taskbar button visible.
+- The system tray icon remains active at the same time while SleepySource is running.
+- Closing with the window X now exits SleepySource completely, including the tray icon and compatibility engine.
+
