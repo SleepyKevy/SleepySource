@@ -24,11 +24,12 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $root = Join-Path $PWD 'SleepySource 1.0 Official Source'
+          $rootName = 'SleepySource 1.0 Official Source'
+          $root = Join-Path $PWD $rootName
           New-Item -ItemType Directory -Path $root -Force | Out-Null
 
           $excludeDirs = @('.git', 'bin', 'obj', 'publish', 'dist', 'build', '.vs')
-          Get-ChildItem -Force | Where-Object { $_.Name -ne '.git' } | ForEach-Object {
+          Get-ChildItem -Force | Where-Object { $_.Name -ne '.git' -and $_.Name -ne $rootName } | ForEach-Object {
             if ($_.PSIsContainer) {
               Copy-Item $_.FullName (Join-Path $root $_.Name) -Recurse -Force
             } else {
