@@ -23,7 +23,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cat .release-upload/chunk-* > /tmp/sleepysource-release.b64
+          cat .release-upload/new-* > /tmp/sleepysource-release.b64
           base64 --decode /tmp/sleepysource-release.b64 > /tmp/sleepysource-release.zip
           echo "783739a73e614c75a14b1a9515ecda699a3516e94cc948b50ab519b4d6c3e59b  /tmp/sleepysource-release.zip" | sha256sum -c -
           mkdir -p /tmp/sleepysource-release
