@@ -1,0 +1,22 @@
+name: Trigger Mutation Parity After Backup Fix
+
+on:
+  push:
+    branches:
+      - csharp-rewrite-1.0
+    paths:
+      - .github/workflows/trigger-mutation-after-backup-fix.yml
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch corrected mutation parity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run csharp-go-mutation-parity-v2.yml --repo "$GH_REPO" --ref csharp-rewrite-1.0
