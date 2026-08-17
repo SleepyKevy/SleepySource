@@ -1,25 +1,33 @@
-SLEEPYSOURCE™ 1.0 BETA — RELEASE NOTES
-========================================
+SLEEPYSOURCE™ 1.0 — RELEASE NOTES
+=================================
 Made by SleepyKev • 2026
 
-Branding update
----------------
-- Added the ™ mark to the visible SleepySource brand wordmark.
-- Added SleepySource™ branding to the splash screen.
-- Added SleepySource™ branding to About / Help.
-- Added the trademark treatment to README and release notes.
-- Installer and application metadata are intentionally unchanged for now.
+SleepySource 1.0 is the revamped pure C#/.NET release line.
 
-Desktop navigation update
--------------------------
-- Mouse Back and Forward side buttons are blocked inside the C# desktop host so SleepySource does not navigate like a normal web browser.
+CORE REVAMP
+-----------
+- Replaced the temporary Go compatibility backend with in-process C#/.NET services.
+- Removed the SleepySource.Engine.exe runtime dependency.
+- Preserved the existing WebView2 interface and OBS Browser Source workflow.
+- Preserved the local service address at 127.0.0.1:17891.
+- Preserved the SleepySource_Data portable data location and existing route structure.
 
-Mouse navigation fix
-- Blocks both XBUTTON mouse events and Windows browser Back/Forward app commands before WebView2 can navigate.
+C# SERVICES
+-----------
+SleepySource now handles the local HTTP/OBS server, settings/state, profiles/backups, Alert Studio, chat, Countdown Pro, Kick integration, stream authentication/settings, Cloudflare relay control, Windows media sessions, health checks and update handling directly in C#.
 
-- Back/Forward browser history navigation is now blocked inside WebView2 itself, and dashboard history is cleared after startup so mouse browser buttons cannot move between app pages.
-Desktop behavior update:
-- Minimizing SleepySource now keeps its taskbar button visible.
-- The system tray icon remains active at the same time while SleepySource is running.
-- Closing with the window X now exits SleepySource completely, including the tray icon and compatibility engine.
+DESKTOP BEHAVIOR
+----------------
+- Windows desktop host remains WinForms + WebView2.
+- Mouse Back/Forward navigation remains blocked inside SleepySource.
+- Minimizing keeps the taskbar button visible while the tray icon remains available.
+- Closing with the window X exits SleepySource completely.
 
+VALIDATION
+----------
+- .NET 8 win-x64 restore/publish: PASS
+- Self-contained single-file SleepySource.exe: PASS
+- Legacy SleepySource.Engine.exe absent from published output: PASS
+- Pure C# Windows runtime/API smoke suite: PASS
+
+Windows x64 only. The application remains unsigned, so Windows SmartScreen may warn on first launch.
