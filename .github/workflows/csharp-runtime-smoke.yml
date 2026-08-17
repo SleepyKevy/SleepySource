@@ -115,6 +115,54 @@ jobs:
             if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
           }
 
+      - name: Verify desktop X-close and tray contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class NativeClose {
+            [DllImport("user32.dll", SetLastError=true)]
+            public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+          }
+          '@
+
+          $source = [IO.File]::ReadAllText('CSharpHost/MainForm.cs')
+          if (-not $source.Contains('private readonly NotifyIcon trayIcon;')) { throw 'NotifyIcon tray implementation is missing.' }
+          if ($source.Contains('ShowBalloonTip(')) { throw 'Balloon tray notifications should not be used.' }
+          if (-not $source.Contains('private const int WM_CLOSE = 0x0010')) { throw 'WM_CLOSE interception is missing.' }
+          if (-not $source.Contains('GracefulExitBudgetMs = 500')) { throw '500 ms exit watchdog is missing.' }
+          if (-not $source.Contains('Kill(entireProcessTree: true)')) { throw 'Process-tree termination fallback is missing.' }
+
+          $proc = Start-Process -FilePath (Resolve-Path 'smoke-dist/SleepySource.exe') -PassThru
+          try {
+            $window = [IntPtr]::Zero
+            $ready = $false
+            for ($i = 0; $i -lt 80; $i++) {
+              if ($proc.HasExited) { throw "SleepySource desktop process exited before becoming ready. Exit code: $($proc.ExitCode)" }
+              $proc.Refresh()
+              $window = $proc.MainWindowHandle
+              if ($window -ne [IntPtr]::Zero) {
+                try {
+                  $health = Invoke-WebRequest 'http://127.0.0.1:17891/api/health' -TimeoutSec 1 -UseBasicParsing
+                  if ($health.StatusCode -eq 200 -and $health.Content.Trim() -eq 'ok') { $ready = $true; break }
+                } catch { }
+              }
+              Start-Sleep -Milliseconds 250
+            }
+            if (-not $ready -or $window -eq [IntPtr]::Zero) { throw 'SleepySource desktop app did not become ready.' }
+
+            $timer = [Diagnostics.Stopwatch]::StartNew()
+            if (-not [NativeClose]::PostMessage($window, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) { throw 'Could not post WM_CLOSE to SleepySource.' }
+            if (-not $proc.WaitForExit(1500)) { throw 'SleepySource.exe was still running 1.5 seconds after X-close.' }
+            $timer.Stop()
+            Write-Host "SleepySource X-close passed in $($timer.ElapsedMilliseconds) ms."
+          }
+          finally {
+            if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          }
+
       - name: Upload smoke-tested Windows build
         uses: actions/upload-artifact@v4
         with:
