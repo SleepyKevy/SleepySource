@@ -80,5 +80,8 @@ jobs:
           if (-not $source.Contains('Visible = true')) { throw 'Tray icon is not enabled.' }
           if ($source.Contains('ShowBalloonTip(')) { throw 'Balloon tray notifications should not be used.' }
           if (-not $source.Contains('GracefulExitBudget = TimeSpan.FromMilliseconds(1500)')) { throw 'Fast-exit deadline is missing.' }
+          if (-not $source.Contains('System.Threading.Timer')) { throw 'Independent exit watchdog is missing.' }
           if (-not $source.Contains('Environment.Exit(0)')) { throw 'Hard-exit fallback is missing.' }
           Write-Host 'Tray and fast-exit source contracts passed.'
+
+# rerun after watchdog ordering fix
