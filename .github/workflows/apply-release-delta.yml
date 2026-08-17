@@ -19,16 +19,18 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Reconstruct and apply release files
+      - name: Reconstruct and verify release files
         shell: bash
         run: |
           set -euo pipefail
           cat .release-upload/chunk-* > /tmp/sleepysource-release.b64
           base64 --decode /tmp/sleepysource-release.b64 > /tmp/sleepysource-release.zip
+          echo "783739a73e614c75a14b1a9515ecda699a3516e94cc948b50ab519b4d6c3e59b  /tmp/sleepysource-release.zip" | sha256sum -c -
           mkdir -p /tmp/sleepysource-release
           unzip -q -o /tmp/sleepysource-release.zip -d /tmp/sleepysource-release
           cp -a /tmp/sleepysource-release/. .
           rm -rf .release-upload
+          rm -f .github/workflows/apply-release-delta.yml
 
       - name: Commit reconstructed 1.1 release candidate
         shell: bash
@@ -41,5 +43,5 @@ jobs:
             echo "No delta changes to commit."
             exit 0
           fi
-          git commit -m "Apply SleepySource 1.1 release candidate"
+          git commit -m "Complete SleepySource 1.1 release candidate"
           git push origin HEAD:agent/sleepysource-1.1-release
