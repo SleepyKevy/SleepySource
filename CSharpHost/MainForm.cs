@@ -10,7 +10,8 @@ internal sealed class MainForm : Form
     private const string AppTitle = "SleepySource 1.0";
     private const string LocalHost = "https://sleepysource.local/";
     private const string EngineHost = "http://127.0.0.1:17891/";
-    private static readonly TimeSpan GracefulExitBudget = TimeSpan.FromMilliseconds(1500);
+    private const int WM_CLOSE = 0x0010;
+    private static readonly TimeSpan GracefulExitBudget = TimeSpan.FromMilliseconds(1250);
 
     private readonly WebView2 webView;
     private readonly BackendHost backend = new();
@@ -97,6 +98,17 @@ internal sealed class MainForm : Form
         }
 
         return (Icon)SystemIcons.Application.Clone();
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == WM_CLOSE)
+        {
+            BeginExit();
+            return;
+        }
+
+        base.WndProc(ref m);
     }
 
     private async void OnShown(object? sender, EventArgs e)
@@ -266,19 +278,20 @@ internal sealed class MainForm : Form
         shutdownStarted = true;
         backendReady = false;
 
-        // Remove all visible UI immediately. No WebView2/WinForms disposal is allowed
-        // on this path because native WebView shutdown can stall the UI thread.
-        trayIcon.Visible = false;
-        ShowInTaskbar = false;
-        Hide();
-
-        // Independent watchdog: even if backend/native cleanup blocks, the process is
-        // terminated after the grace period instead of lingering invisibly in Task Manager.
+        // Arm the independent watchdog FIRST. It does not depend on the WinForms UI
+        // thread, WebView2, Kestrel, or COM cleanup. If any of those stall, kill the
+        // complete SleepySource process tree after the brief graceful-shutdown budget.
         exitWatchdog = new System.Threading.Timer(
-            static _ => Environment.Exit(0),
+            static _ => ForceProcessExit(),
             null,
             GracefulExitBudget,
             Timeout.InfiniteTimeSpan);
+
+        // Remove visible UI immediately. No WebView2 disposal is performed on this
+        // path because native WebView shutdown can stall the desktop thread.
+        try { trayIcon.Visible = false; } catch { }
+        try { ShowInTaskbar = false; } catch { }
+        try { Hide(); } catch { }
 
         _ = Task.Run(() =>
         {
@@ -286,6 +299,19 @@ internal sealed class MainForm : Form
             catch { }
             Environment.Exit(0);
         });
+    }
+
+    private static void ForceProcessExit()
+    {
+        try
+        {
+            using var current = Process.GetCurrentProcess();
+            current.Kill(entireProcessTree: true);
+        }
+        catch
+        {
+            Environment.Exit(0);
+        }
     }
 
     protected override void Dispose(bool disposing)
