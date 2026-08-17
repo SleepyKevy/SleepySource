@@ -20,13 +20,14 @@ jobs:
           fetch-depth: 0
       - name: Update release branding
         run: |
-          sed -i 's/1\.0 Beta/1.0/g; s/1\.0 BETA/1.0/g' CSharpHost/web/index.html CSharpHost/web/enter.html
+          sed -i 's/1\.0 Beta/1.0/g; s/1\.0 BETA/1.0/g' CSharpHost/Models.cs CSharpHost/web/index.html CSharpHost/web/enter.html
           git diff --check
-          ! grep -E '1\.0 Beta|1\.0 BETA' CSharpHost/web/index.html CSharpHost/web/enter.html
+          ! grep -E '1\.0 Beta|1\.0 BETA' CSharpHost/Models.cs CSharpHost/web/index.html CSharpHost/web/enter.html
       - name: Commit branding
         run: |
+          if git diff --quiet; then echo 'Branding already clean.'; exit 0; fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add CSharpHost/web/index.html CSharpHost/web/enter.html
-          git commit -m 'Remove Beta labels from SleepySource 1.0 UI'
+          git add CSharpHost/Models.cs CSharpHost/web/index.html CSharpHost/web/enter.html
+          git commit -m 'Finalize SleepySource 1.0 version labels'
           git push origin HEAD:csharp-rewrite-1.0
