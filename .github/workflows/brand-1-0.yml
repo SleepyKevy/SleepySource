@@ -1,0 +1,32 @@
+name: Brand SleepySource 1.0
+
+on:
+  push:
+    branches:
+      - csharp-rewrite-1.0
+    paths:
+      - .github/workflows/brand-1-0.yml
+
+permissions:
+  contents: write
+
+jobs:
+  brand:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: csharp-rewrite-1.0
+          fetch-depth: 0
+      - name: Update release branding
+        run: |
+          sed -i 's/1\.0 Beta/1.0/g; s/1\.0 BETA/1.0/g' CSharpHost/web/index.html CSharpHost/web/enter.html
+          git diff --check
+          ! grep -E '1\.0 Beta|1\.0 BETA' CSharpHost/web/index.html CSharpHost/web/enter.html
+      - name: Commit branding
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add CSharpHost/web/index.html CSharpHost/web/enter.html
+          git commit -m 'Remove Beta labels from SleepySource 1.0 UI'
+          git push origin HEAD:csharp-rewrite-1.0
