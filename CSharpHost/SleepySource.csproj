@@ -9,14 +9,14 @@
     <AssemblyName>SleepySource</AssemblyName>
     <RootNamespace>SleepySource</RootNamespace>
     <ApplicationIcon>assets\app.ico</ApplicationIcon>
-    <Version>1.0.0</Version>
-    <FileVersion>1.0.0.0</FileVersion>
-    <AssemblyVersion>1.0.0.0</AssemblyVersion>
-    <Product>SleepySource 1.0</Product>
+    <Version>1.1.0</Version>
+    <FileVersion>1.1.0.0</FileVersion>
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <Product>SleepySource 1.1</Product>
     <Authors>SleepyKev</Authors>
     <Company>SleepyKev</Company>
     <Copyright>Copyright © 2026 SleepyKev</Copyright>
-    <Description>SleepySource 1.0 — C#/.NET streaming tools hub.</Description>
+    <Description>SleepySource 1.1 — C#/.NET streaming tools hub.</Description>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

@@ -8,7 +8,7 @@ namespace SleepySource;
 
 internal sealed class MainForm : Form
 {
-    private const string AppTitle = "SleepySource 1.0";
+    private const string AppTitle = "SleepySource 1.1";
     private const string LocalHost = "https://sleepysource.local/";
     private const string EngineHost = "http://127.0.0.1:17891/";
     private const int WM_CLOSE = 0x0010;
@@ -66,7 +66,7 @@ internal sealed class MainForm : Form
         // pinned directly to the tray or placed in the hidden-icons overflow area.
         trayIcon = new NotifyIcon
         {
-            Text = "SleepySource 1.0 — Made by SleepyKev • 2026",
+            Text = "SleepySource 1.1 — Made by SleepyKev • 2026",
             Icon = applicationIcon,
             ContextMenuStrip = trayMenu,
             Visible = true
@@ -173,7 +173,7 @@ internal sealed class MainForm : Form
         {
             MessageBox.Show(
                 this,
-                "SleepySource 1.0 could not start.\n\n" + ex.Message,
+                "SleepySource 1.1 could not start.\n\n" + ex.Message,
                 AppTitle,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
@@ -218,6 +218,26 @@ internal sealed class MainForm : Form
         string? message;
         try { message = e.TryGetWebMessageAsString(); }
         catch { return; }
+
+        if (string.Equals(message, "splash-stage-complete", StringComparison.Ordinal))
+        {
+            // The visual loader intentionally pauses near completion until the real
+            // in-process backend is ready. This keeps the final 100%/Ready state tied
+            // to actual startup readiness instead of a purely cosmetic timer.
+            if (!backendReady)
+            {
+                var deadline = DateTime.UtcNow.AddSeconds(10);
+                while (!backendReady && DateTime.UtcNow < deadline)
+                    await Task.Delay(100);
+            }
+
+            if (backendReady && !dashboardOpen)
+            {
+                try { webView.CoreWebView2.PostWebMessageAsString("backend-ready"); }
+                catch { }
+            }
+            return;
+        }
 
         if (!string.Equals(message, "open", StringComparison.Ordinal) || dashboardOpen)
             return;

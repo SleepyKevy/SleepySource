@@ -139,7 +139,7 @@ internal sealed class MediaDiagnostics
 
 internal sealed class AppState
 {
-    public string Version { get; set; } = "1.0";
+    public string Version { get; set; } = "1.1";
     public Track Track { get; set; } = new();
     public string DisplayText { get; set; } = "";
     public Settings Settings { get; set; } = new();
@@ -467,7 +467,7 @@ internal sealed class HealthCheck
 
 internal sealed class HealthReport
 {
-    public string Version { get; set; } = "1.0";
+    public string Version { get; set; } = "1.1";
     public long CheckedAt { get; set; }
     public string OverallStatus { get; set; } = "pass";
     public string Summary { get; set; } = "";
