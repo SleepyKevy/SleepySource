@@ -1,0 +1,113 @@
+name: SleepySource 1.0 Pure C# Runtime Smoke
+
+on:
+  push:
+    branches:
+      - csharp-rewrite-1.0
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  runtime-smoke:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout pure C# rewrite
+        uses: actions/checkout@v4
+        with:
+          ref: csharp-rewrite-1.0
+
+      - name: Use .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish exact branch source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet restore CSharpHost/SleepySource.csproj -r win-x64
+          dotnet publish CSharpHost/SleepySource.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore -o smoke-dist
+          if (-not (Test-Path 'smoke-dist/SleepySource.exe')) { throw 'SleepySource.exe was not produced.' }
+          if (Test-Path 'smoke-dist/SleepySource.Engine.exe') { throw 'Legacy Go engine is present in pure C# output.' }
+          if (Get-ChildItem CSharpHost -Recurse -Filter *.go -ErrorAction SilentlyContinue) { throw 'Go source exists under CSharpHost.' }
+
+      - name: Start C# backend and probe local contracts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = 'http://127.0.0.1:17891'
+          $proc = Start-Process -FilePath (Resolve-Path 'smoke-dist/SleepySource.exe') -ArgumentList '--headless' -PassThru
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 40; $i++) {
+              if ($proc.HasExited) { throw "SleepySource exited before its C# backend became ready. Exit code: $($proc.ExitCode)" }
+              try {
+                $health = Invoke-WebRequest "$base/api/health" -TimeoutSec 2 -UseBasicParsing
+                if ($health.StatusCode -eq 200 -and $health.Content.Trim() -eq 'ok') { $ready = $true; break }
+              } catch { }
+              Start-Sleep -Milliseconds 500
+            }
+            if (-not $ready) { throw 'Pure C# backend did not bind to 127.0.0.1:17891 in time.' }
+
+            $pages = @('/', '/designer', '/chat', '/overlay', '/countdown', '/alerts')
+            foreach ($path in $pages) {
+              $r = Invoke-WebRequest ($base + $path) -TimeoutSec 5 -UseBasicParsing
+              if ($r.StatusCode -ne 200) { throw "$path returned HTTP $($r.StatusCode)" }
+              if ($r.Content -notmatch '<!doctype html>') { throw "$path did not return the expected SleepySource HTML page." }
+            }
+
+            $jsonRoutes = @(
+              '/api/state',
+              '/api/settings',
+              '/api/countdown/state',
+              '/api/countdown/settings',
+              '/api/countdown/profiles',
+              '/api/alerts/state?consume=0',
+              '/api/alerts/settings',
+              '/api/chat/state',
+              '/api/chat/settings',
+              '/api/profiles',
+              '/api/cloudflare/status',
+              '/api/stream/auth/status'
+            )
+            foreach ($path in $jsonRoutes) {
+              $r = Invoke-WebRequest ($base + $path) -TimeoutSec 5 -UseBasicParsing
+              if ($r.StatusCode -ne 200) { throw "$path returned HTTP $($r.StatusCode)" }
+              try { $null = $r.Content | ConvertFrom-Json } catch { throw "$path did not return valid JSON." }
+            }
+
+            $head = Invoke-WebRequest "$base/api/health" -Method Head -TimeoutSec 5 -UseBasicParsing
+            if ($head.StatusCode -ne 200) { throw 'HEAD /api/health failed.' }
+
+            $chatBody = @{ username = 'SmokeTester'; text = 'Pure C# chat smoke test'; user_id = '12345' } | ConvertTo-Json
+            $chat = Invoke-WebRequest "$base/api/chat/test" -Method Post -ContentType 'application/json' -Body $chatBody -TimeoutSec 5 -UseBasicParsing
+            if ($chat.StatusCode -ne 200 -or $chat.Content -notmatch 'SmokeTester') { throw 'Chat test endpoint failed to round-trip through the C# backend.' }
+
+            $alertBody = @{ type = 'follow'; username = 'SmokeFollower' } | ConvertTo-Json
+            $alert = Invoke-WebRequest "$base/api/alerts/test" -Method Post -ContentType 'application/json' -Body $alertBody -TimeoutSec 5 -UseBasicParsing
+            if ($alert.StatusCode -ne 200) { throw 'Alert queue smoke test failed.' }
+            $alertState = Invoke-WebRequest "$base/api/alerts/state?consume=0" -TimeoutSec 5 -UseBasicParsing
+            if ($alertState.Content -notmatch 'SmokeFollower') { throw 'Alert queue did not retain the pure C# test alert.' }
+
+            $countdownBody = @{ action = 'reset' } | ConvertTo-Json
+            $countdown = Invoke-WebRequest "$base/api/countdown/control" -Method Post -ContentType 'application/json' -Body $countdownBody -TimeoutSec 5 -UseBasicParsing
+            if ($countdown.StatusCode -ne 200) { throw 'Countdown control smoke test failed.' }
+
+            $backup = Invoke-WebRequest "$base/api/backup/export" -TimeoutSec 10 -UseBasicParsing
+            if ($backup.StatusCode -ne 200 -or $backup.Headers['Content-Type'] -notmatch 'application/zip') { throw 'Backup export contract failed.' }
+
+            if (-not (Test-Path 'smoke-dist/SleepySource_Data')) { throw 'SleepySource_Data was not created beside the pure C# executable.' }
+            Write-Host 'Pure C# runtime/API smoke checks passed.'
+          }
+          finally {
+            if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          }
+
+      - name: Upload smoke-tested Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: SleepySource-1.0-Pure-CSharp-Smoke-Tested
+          path: smoke-dist/
+          if-no-files-found: error
