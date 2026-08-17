@@ -1,0 +1,44 @@
+name: Build SleepySource Splash Test EXE
+
+on:
+  push:
+    branches:
+      - splash-test-build-20260817
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout splash test branch
+        uses: actions/checkout@v4
+
+      - name: Use .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build standalone splash test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet publish SplashOnlyTest/SleepySource.SplashTest.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -o splash-out
+          if (-not (Test-Path 'splash-out/SleepySource_Splash_Test.exe')) {
+            throw 'SleepySource_Splash_Test.exe was not produced.'
+          }
+
+      - name: Upload splash test EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: SleepySource_Splash_Test
+          path: splash-out/SleepySource_Splash_Test.exe
+          if-no-files-found: error
+          compression-level: 0
