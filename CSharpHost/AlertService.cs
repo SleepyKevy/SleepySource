@@ -197,8 +197,8 @@ internal sealed class AlertService
             {
                 ID = ev.ID, Type = ev.Type, Source = ev.Source, Username = ev.Username, Amount = ev.Amount, Count = ev.Count, Months = ev.Months, Tier = ev.Tier, GiftName = ev.GiftName, RewardTitle = ev.RewardTitle, UserInput = ev.UserInput, CreatedAtMS = ev.CreatedAtMS,
                 Style = Clone(st), Title = RenderTemplate(st.TitleTemplate, ev), Message = RenderTemplate(st.MessageTemplate, ev), StartedAtMS = now, EndsAtMS = now + st.EnterDurationMS + st.DurationMS + st.ExitDurationMS,
-                VisualURL = st.VisualFile.Length > 0 ? $"/media/alerts?type={Uri.EscapeDataString(ev.Type)}&kind=visual&v={st.VisualUpdatedAt}" : "",
-                SoundURL = st.SoundFile.Length > 0 ? $"/media/alerts?type={Uri.EscapeDataString(ev.Type)}&kind=sound&v={st.SoundUpdatedAt}" : ""
+                VisualURL = !string.IsNullOrWhiteSpace(st.VisualFile) ? $"/media/alerts?type={Uri.EscapeDataString(ev.Type)}&kind=visual&v={st.VisualUpdatedAt}" : "",
+                SoundURL = !string.IsNullOrWhiteSpace(st.SoundFile) ? $"/media/alerts?type={Uri.EscapeDataString(ev.Type)}&kind=sound&v={st.SoundUpdatedAt}" : ""
             }; updatedAtMS = now; return;
         }
     }
