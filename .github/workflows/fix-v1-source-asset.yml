@@ -1,0 +1,44 @@
+name: Fix SleepySource 1.0 Source Asset
+
+on:
+  push:
+    branches:
+      - release-v1-source-fix
+    paths:
+      - .github/workflows/fix-v1-source-asset.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix-source:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout source-fix branch
+        uses: actions/checkout@v4
+
+      - name: Build clean tracked-files source ZIP
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git archive --format=zip --prefix="SleepySource 1.0 Official Source/" HEAD README.txt RELEASE_NOTES.txt VALIDATION.txt .gitignore CSharpHost .github/workflows/csharp-runtime-smoke.yml -o SleepySource_1.0_Official_Source.zip
+          $size = (Get-Item 'SleepySource_1.0_Official_Source.zip').Length
+          if ($size -lt 100000 -or $size -gt 5000000) { throw "Unexpected source ZIP size: $size" }
+          Get-FileHash 'SleepySource_1.0_Official_Source.zip' -Algorithm SHA256
+
+      - name: Replace source release asset
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh release upload v1.0 'SleepySource_1.0_Official_Source.zip' --clobber --repo '${{ github.repository }}'
+
+      - name: Remove temporary source-fix branch
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method DELETE '/repos/${{ github.repository }}/git/refs/heads/release-v1-source-fix'
