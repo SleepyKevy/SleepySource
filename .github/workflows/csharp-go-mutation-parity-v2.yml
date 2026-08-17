@@ -1,0 +1,147 @@
+name: SleepySource 1.0 Go to C# Mutation Parity V2
+
+on:
+  push:
+    branches:
+      - csharp-rewrite-1.0
+    paths:
+      - .github/workflows/csharp-go-mutation-parity-v2.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mutation-parity:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout C# candidate
+        uses: actions/checkout@v4
+        with:
+          ref: csharp-rewrite-1.0
+          path: current
+
+      - name: Checkout frozen Go baseline
+        uses: actions/checkout@v4
+        with:
+          ref: 1855c75291fbdad13ee0272b222d37cefbc83f4d
+          path: baseline
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: false
+
+      - name: Build both backends
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          New-Item go-ref -ItemType Directory -Force | Out-Null
+          Push-Location baseline/CompatibilityEngine
+          go test ./...
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen Go tests failed.' }
+          go build -o ../../go-ref/SleepySource.Engine.exe .
+          if ($LASTEXITCODE -ne 0) { throw 'Frozen Go build failed.' }
+          Pop-Location
+          Copy-Item baseline/CompatibilityEngine/web go-ref/web -Recurse
+          Copy-Item baseline/CompatibilityEngine/assets go-ref/assets -Recurse
+          dotnet restore current/CSharpHost/SleepySource.csproj -r win-x64
+          dotnet publish current/CSharpHost/SleepySource.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore -o csharp-ref
+          if (-not (Test-Path csharp-ref/SleepySource.exe)) { throw 'C# executable missing.' }
+          if (Test-Path csharp-ref/SleepySource.Engine.exe) { throw 'Legacy Go engine leaked into C# output.' }
+
+      - name: Run identical mutation and persistence scenarios
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base='http://127.0.0.1:17891'
+          function WaitReady($p){ for($i=0;$i-lt50;$i++){ if($p.HasExited){throw "Backend exited early: $($p.ExitCode)"}; try{if((Invoke-WebRequest "$base/api/health" -UseBasicParsing -TimeoutSec 2).StatusCode-eq200){return}}catch{}; Start-Sleep -Milliseconds 400}; throw 'Backend readiness timeout.' }
+          function StartBackend($exe,$arg){$p=Start-Process -FilePath (Resolve-Path $exe) -ArgumentList $arg -PassThru; WaitReady $p; return $p}
+          function StopBackend($p){if($p-and-not$p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}; Start-Sleep -Milliseconds 900}
+          function GetJ($path){Invoke-RestMethod ($base+$path) -Method Get -TimeoutSec 10}
+          function PostJ($path,$body){Invoke-RestMethod ($base+$path) -Method Post -ContentType 'application/json' -Body ($body|ConvertTo-Json -Depth 100 -Compress) -TimeoutSec 15}
+          function StatusPost($path,$body){try{return [int](Invoke-WebRequest ($base+$path) -Method Post -ContentType 'application/json' -Body ($body|ConvertTo-Json -Depth 100 -Compress) -UseBasicParsing -TimeoutSec 10).StatusCode}catch{if($_.Exception.Response){return [int]$_.Exception.Response.StatusCode};throw}}
+          function Check($ok,$msg){if(-not$ok){throw $msg}}
+          function Scenario($name,$exe,$arg){
+            Write-Host "===== $name ====="
+            $p=$null
+            try{
+              $p=StartBackend $exe $arg
+              $s=(GetJ '/api/settings').settings; $s.designer_theme='purple'; $s.text_size=37; $s.show_progress=$false; $saved=PostJ '/api/settings' $s
+              Check ($saved.settings.designer_theme-eq'purple'-and[int]$saved.settings.text_size-eq37-and-not[bool]$saved.settings.show_progress) "$name main settings save failed"
+
+              $cs=GetJ '/api/chat/settings'; $cs.font_size=29; $cs.background_opacity=61; $csaved=PostJ '/api/chat/settings' $cs
+              Check ([int]$csaved.font_size-eq29-and[int]$csaved.background_opacity-eq61) "$name chat settings save failed"
+              $ct=PostJ '/api/chat/test' @{username='ParityChatter';text='Mutation parity chat';user_id='4242'}
+              Check ((@($ct.messages|Where-Object{$_.username-eq'ParityChatter'})).Count-ge1) "$name chat test failed"
+              $null=Invoke-WebRequest "$base/api/chat/clear" -Method Post -UseBasicParsing -TimeoutSec 8
+              Check ($null-eq(GetJ '/api/chat/state').messages-or@((GetJ '/api/chat/state').messages).Count-eq0) "$name chat clear failed"
+
+              $cd=(GetJ '/api/countdown/state').settings; $cd.minutes=1; $cd.seconds=7; $cd.prefix='CI '; $cds=PostJ '/api/countdown/settings' $cd
+              Check ([int]$cds.settings.minutes-eq1-and[int]$cds.settings.seconds-eq7) "$name countdown settings failed"
+              $null=PostJ '/api/countdown/profiles' @{action='save';name='CI_Countdown'}
+              Check ((@((GetJ '/api/countdown/profiles').profiles|Where-Object{$_.name-eq'CI_Countdown'})).Count-eq1) "$name countdown profile failed"
+              Check ([bool](PostJ '/api/countdown/control' @{action='start'}).running) "$name countdown start failed"
+              Start-Sleep -Milliseconds 150
+              Check ([bool](PostJ '/api/countdown/control' @{action='pause'}).paused) "$name countdown pause failed"
+              $reset=PostJ '/api/countdown/control' @{action='reset'}; Check (-not[bool]$reset.running-and-not[bool]$reset.paused) "$name countdown reset failed"
+
+              $as=GetJ '/api/alerts/settings'; $as.queue_limit=7; $asaved=PostJ '/api/alerts/settings' $as; Check ([int]$asaved.queue_limit-eq7) "$name alert settings failed"
+              $queued=PostJ '/api/alerts/test' @{type='follow';username='ParityFollower'}; Check ([int]$queued.queue_depth-eq1) "$name alert queue failed"
+              $peek=GetJ '/api/alerts/state?consume=0'; Check ([int]$peek.queue_depth-eq1-and$null-eq$peek.current) "$name alert peek consumed unexpectedly"
+              $consumed=GetJ '/api/alerts/state?consumer=overlay'; Check ([int]$consumed.queue_depth-eq0-and$consumed.current.username-eq'ParityFollower') "$name overlay alert consumption failed"
+              $cleared=PostJ '/api/alerts/control' @{action='clear'}; Check ([int]$cleared.queue_depth-eq0-and$null-eq$cleared.current) "$name alert clear failed"
+
+              $null=PostJ '/api/profiles' @{action='save';name='CI_Profile'}
+              $null=PostJ '/api/profiles' @{action='duplicate';name='CI_Profile';new_name='CI_Profile_Copy'}
+              $null=PostJ '/api/profiles' @{action='rename';name='CI_Profile_Copy';new_name='CI_Profile_Renamed'}
+              $null=PostJ '/api/profiles' @{action='set_default';name='CI_Profile_Renamed'}
+              $pl=GetJ '/api/profiles'; Check ((@($pl|Where-Object{$_.name-eq'CI_Profile'})).Count-eq1-and@($pl|Where-Object{$_.name-eq'CI_Profile_Renamed'-and$_.default}).Count-eq1) "$name profile CRUD failed"
+              $null=PostJ '/api/profiles' @{action='clear_default';name=''}; $null=PostJ '/api/profiles' @{action='delete';name='CI_Profile_Renamed'}
+
+              $backup=Join-Path (Resolve-Path '.').Path "$name-backup.zip"; Invoke-WebRequest "$base/api/backup/export" -OutFile $backup -UseBasicParsing -TimeoutSec 20
+              Check ((Get-Item $backup).Length-gt100) "$name backup export failed"
+              $chg=(GetJ '/api/settings').settings; $chg.designer_theme='red'; $null=PostJ '/api/settings' $chg; Check ((GetJ '/api/settings').settings.designer_theme-eq'red') "$name pre-restore mutation failed"
+              $imp=Invoke-WebRequest "$base/api/backup/import" -Method Post -Form @{backup=Get-Item $backup} -UseBasicParsing -TimeoutSec 20; Check ([int]$imp.StatusCode-eq200) "$name backup import failed"
+              Check ((GetJ '/api/settings').settings.designer_theme-eq'purple') "$name backup restore failed"
+
+              $chatStatus=StatusPost '/api/chat/connect' @{channel='ci-no-credentials'}; $authStatus=StatusPost '/api/stream/auth/start' @{}; $updateStatus=StatusPost '/api/stream/update' @{title='CI';category_id=1;category_name='Just Chatting'}
+              Check ($chatStatus-eq412-and$authStatus-eq412-and$updateStatus-eq412) "$name no-credential status mismatch: $chatStatus/$authStatus/$updateStatus"
+
+              StopBackend $p; $p=StartBackend $exe $arg
+              $after=(GetJ '/api/settings').settings; $chatAfter=GetJ '/api/chat/settings'; $cdAfter=GetJ '/api/countdown/state'; $alertAfter=GetJ '/api/alerts/settings'; $profiles=GetJ '/api/profiles'
+              Check ($after.designer_theme-eq'purple'-and[int]$after.text_size-eq37) "$name main persistence failed"
+              Check ([int]$chatAfter.font_size-eq29-and[int]$chatAfter.background_opacity-eq61) "$name chat persistence failed"
+              Check ([int]$cdAfter.settings.minutes-eq1-and[int]$cdAfter.settings.seconds-eq7-and$cdAfter.settings.prefix-eq'CI ') "$name countdown persistence failed"
+              Check ([int]$alertAfter.queue_limit-eq7) "$name alert persistence failed"
+              Check ((@($profiles|Where-Object{$_.name-eq'CI_Profile'})).Count-eq1) "$name profile persistence failed"
+              New-Item mutation-results -ItemType Directory -Force|Out-Null
+              [ordered]@{theme=$after.designer_theme;text_size=[int]$after.text_size;show_progress=[bool]$after.show_progress;chat_font=[int]$chatAfter.font_size;chat_opacity=[int]$chatAfter.background_opacity;countdown_minutes=[int]$cdAfter.settings.minutes;countdown_seconds=[int]$cdAfter.settings.seconds;countdown_prefix=[string]$cdAfter.settings.prefix;countdown_profile=[bool](@($cdAfter.profiles|Where-Object{$_.name-eq'CI_Countdown'}).Count-eq1);alert_queue_limit=[int]$alertAfter.queue_limit;profiles=@($profiles|ForEach-Object{$_.name}|Sort-Object);chat_no_cred=$chatStatus;auth_no_cred=$authStatus;update_no_cred=$updateStatus}|ConvertTo-Json -Depth 10|Set-Content "mutation-results/$name.json" -Encoding utf8NoBOM
+            }finally{StopBackend $p}
+          }
+          Scenario 'go' 'go-ref/SleepySource.Engine.exe' '--engine-only'
+          Scenario 'csharp' 'csharp-ref/SleepySource.exe' '--headless'
+
+      - name: Compare normalized persisted results
+        shell: pwsh
+        run: |
+          $g=Get-Content mutation-results/go.json -Raw|ConvertFrom-Json
+          $c=Get-Content mutation-results/csharp.json -Raw|ConvertFrom-Json
+          $gj=$g|ConvertTo-Json -Depth 20 -Compress
+          $cj=$c|ConvertTo-Json -Depth 20 -Compress
+          Write-Host "Go: $gj"
+          Write-Host "C#: $cj"
+          if($gj-ne$cj){throw 'Go and C# mutation/persistence summaries differ.'}
+          Write-Host 'Go and C# mutation/persistence parity passed.'
+
+      - name: Upload parity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: SleepySource-1.0-Mutation-Parity-V2
+          path: mutation-results/
+          if-no-files-found: ignore
