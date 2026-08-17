@@ -350,11 +350,7 @@ body::after{
     opening = true;
     button.disabled = true;
     splash.classList.add('leaving');
-    window.setTimeout(() => {
-      if (window.chrome?.webview) {
-        window.chrome.webview.postMessage('open');
-      }
-    }, 180);
+    window.setTimeout(() => window.location.assign('/designer'), 180);
   }
 
   button.addEventListener('click', openSleepySource);

@@ -4,7 +4,7 @@ namespace SleepySource;
 
 internal static class Program
 {
-    private const string MutexName = @"Local\SleepySource.CSharp.1.0.Beta";
+    private const string MutexName = @"Local\SleepySource.CSharp.1.0";
 
     [STAThread]
     private static void Main()
@@ -13,8 +13,8 @@ internal static class Program
         if (!ownsMutex)
         {
             MessageBox.Show(
-                "SleepySource 1.0 Beta is already running.",
-                "SleepySource 1.0 Beta",
+                "SleepySource 1.0 is already running.",
+                "SleepySource 1.0",
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Information);
             return;

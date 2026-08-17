@@ -7,15 +7,15 @@ namespace SleepySource;
 
 internal sealed class MainForm : Form
 {
-    private const string AppTitle = "SleepySource 1.0 Beta";
+    private const string AppTitle = "SleepySource 1.0";
     private const string LocalHost = "https://sleepysource.local/";
     private const string EngineHost = "http://127.0.0.1:17891/";
 
     private readonly WebView2 webView;
-    private readonly EngineProcessManager engine = new();
+    private readonly BackendHost backend = new();
     private readonly NotifyIcon trayIcon;
     private readonly ContextMenuStrip trayMenu;
-    private bool engineReady;
+    private bool backendReady;
     private bool dashboardOpen;
 
     public MainForm()
@@ -48,7 +48,7 @@ internal sealed class MainForm : Form
 
         trayIcon = new NotifyIcon
         {
-            Text = "SleepySource 1.0 Beta — Made by SleepyKev • 2026",
+            Text = "SleepySource 1.0 — Made by SleepyKev • 2026",
             Icon = Icon,
             ContextMenuStrip = trayMenu,
             Visible = true
@@ -72,16 +72,16 @@ internal sealed class MainForm : Form
         try
         {
             using var startupCts = new CancellationTokenSource(TimeSpan.FromSeconds(16));
-            var engineTask = engine.StartAsync(startupCts.Token);
+            var backendTask = backend.StartAsync(startupCts.Token);
             await InitializeWebViewAsync();
-            await engineTask;
-            engineReady = true;
+            await backendTask;
+            backendReady = true;
         }
         catch (Exception ex)
         {
             MessageBox.Show(
                 this,
-                "SleepySource 1.0 Beta could not start.\n\n" + ex.Message,
+                "SleepySource 1.0 could not start.\n\n" + ex.Message,
                 AppTitle,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
@@ -94,7 +94,7 @@ internal sealed class MainForm : Form
         var userDataFolder = Path.Combine(
             AppContext.BaseDirectory,
             "SleepySource_Data",
-            "DesktopRuntime-CSharp-Beta");
+            "DesktopRuntime-CSharp");
         Directory.CreateDirectory(userDataFolder);
 
         var environment = await CoreWebView2Environment.CreateAsync(
@@ -130,13 +130,13 @@ internal sealed class MainForm : Form
         if (!string.Equals(message, "open", StringComparison.Ordinal) || dashboardOpen)
             return;
 
-        if (!engineReady)
+        if (!backendReady)
         {
             var deadline = DateTime.UtcNow.AddSeconds(10);
-            while (!engineReady && DateTime.UtcNow < deadline)
+            while (!backendReady && DateTime.UtcNow < deadline)
                 await Task.Delay(100);
         }
-        if (!engineReady)
+        if (!backendReady)
             return;
 
         dashboardOpen = true;
@@ -222,7 +222,7 @@ internal sealed class MainForm : Form
     {
         // Closing the window with X exits SleepySource completely.
         trayIcon.Visible = false;
-        engine.Stop();
+        backend.Stop();
     }
 
     protected override void Dispose(bool disposing)
@@ -232,7 +232,7 @@ internal sealed class MainForm : Form
             trayIcon.Dispose();
             trayMenu.Dispose();
             webView.Dispose();
-            engine.Dispose();
+            backend.Dispose();
         }
         base.Dispose(disposing);
     }
