@@ -47,3 +47,5 @@ jobs:
             Write-Host 'PRE-RESTART FINAL READS';$null=G '/api/chat/settings';$null=G '/api/countdown/state';$null=G '/api/alerts/settings';$null=G '/api/profiles'
             Write-Host 'C# mutation diagnostic reached end successfully.'
           }finally{if($p-and-not$p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}}
+
+# rerun after alert overlay null-media fix
