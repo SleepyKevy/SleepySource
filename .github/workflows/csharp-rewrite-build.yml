@@ -21,6 +21,11 @@ jobs:
           ref: csharp-rewrite-1.0
           fetch-depth: 0
 
+      - name: Use .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
       - name: Reconstruct and verify C# source bundle
         shell: pwsh
         run: |
@@ -67,6 +72,22 @@ jobs:
           New-Item -ItemType Directory -Force 'CSharpHost/assets' | Out-Null
           Copy-Item 'CompatibilityEngine/web/*' 'CSharpHost/web/' -Recurse -Force
           Copy-Item 'CompatibilityEngine/assets/*' 'CSharpHost/assets/' -Recurse -Force
+
+      - name: Apply compiler-reviewed C# fixes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'CSharpHost/BackendHost.cs'
+          $code = Get-Content $path -Raw
+          $oldStop = 'if (running is not null) try { running.StopAsync(TimeSpan.FromSeconds(3)).GetAwaiter().GetResult(); } catch { }'
+          $newStop = 'if (running is not null) try { using var stopCts = new CancellationTokenSource(TimeSpan.FromSeconds(3)); running.StopAsync(stopCts.Token).GetAwaiter().GetResult(); } catch { }'
+          if (-not $code.Contains($oldStop)) { throw 'Expected BackendHost shutdown source was not found.' }
+          $code = $code.Replace($oldStop, $newStop)
+          $oldWebhook = 'web.MapPost("/api/chat/kick-webhook",HandleKickWebhookAsync);'
+          $newWebhook = 'web.MapPost("/api/chat/kick-webhook", (Func<HttpContext, Task<IResult>>)HandleKickWebhookAsync);'
+          if (-not $code.Contains($oldWebhook)) { throw 'Expected Kick webhook route source was not found.' }
+          $code = $code.Replace($oldWebhook, $newWebhook)
+          [IO.File]::WriteAllText((Resolve-Path $path), $code, [Text.UTF8Encoding]::new($false))
 
       - name: Restore
         shell: pwsh
