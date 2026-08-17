@@ -20,3 +20,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: gh workflow run csharp-go-mutation-parity-v2.yml --repo "$GH_REPO" --ref csharp-rewrite-1.0
+
+# rerun after alert overlay null-media fix
