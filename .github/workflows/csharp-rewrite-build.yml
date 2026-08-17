@@ -1,0 +1,81 @@
+name: Validate SleepySource 1.0 Pure C# Rewrite
+
+on:
+  push:
+    branches:
+      - csharp-rewrite-1.0
+    paths:
+      - .rewrite/READY
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-stage:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout rewrite branch
+        uses: actions/checkout@v4
+        with:
+          ref: csharp-rewrite-1.0
+          fetch-depth: 0
+
+      - name: Reconstruct and verify C# source bundle
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $parts = Get-ChildItem '.rewrite/codepart-*' | Sort-Object Name
+          if ($parts.Count -ne 5) { throw "Expected 5 C# bundle parts, found $($parts.Count)." }
+          $b64 = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
+          $xzPath = Join-Path $env:RUNNER_TEMP 'sleepysource-csharp.tar.xz'
+          [IO.File]::WriteAllBytes($xzPath, [Convert]::FromBase64String($b64))
+          $actual = (Get-FileHash $xzPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = 'bf95e62313bc508e116bed2490f389820214fe0dd62c7f5aee579c4ec0a13d33'
+          if ($actual -ne $expected) { throw "C# source bundle checksum mismatch: $actual" }
+          Write-Host "Bundle SHA-256 verified: $actual"
+
+          Remove-Item 'CSharpHost/*.cs' -Force -ErrorAction SilentlyContinue
+          Remove-Item 'CSharpHost/*.csproj' -Force -ErrorAction SilentlyContinue
+          tar -xJf $xzPath -C CSharpHost
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to extract C# source bundle.' }
+
+          New-Item -ItemType Directory -Force 'CSharpHost/web' | Out-Null
+          New-Item -ItemType Directory -Force 'CSharpHost/assets' | Out-Null
+          Copy-Item 'CompatibilityEngine/web/*' 'CSharpHost/web/' -Recurse -Force
+          Copy-Item 'CompatibilityEngine/assets/*' 'CSharpHost/assets/' -Recurse -Force
+
+      - name: Restore
+        shell: pwsh
+        run: dotnet restore CSharpHost/SleepySource.csproj -r win-x64
+
+      - name: Publish Windows x64
+        shell: pwsh
+        run: |
+          dotnet publish CSharpHost/SleepySource.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore
+          if ($LASTEXITCODE -ne 0) { throw 'Pure C# publish failed.' }
+          $publish = 'CSharpHost/bin/Release/net8.0-windows10.0.19041.0/win-x64/publish'
+          if (-not (Test-Path "$publish/SleepySource.exe")) { throw 'SleepySource.exe was not produced.' }
+          if (Test-Path "$publish/SleepySource.Engine.exe") { throw 'Go compatibility engine unexpectedly present in pure C# publish.' }
+          Get-FileHash "$publish/SleepySource.exe" -Algorithm SHA256
+
+      - name: Upload pure C# test build
+        uses: actions/upload-artifact@v4
+        with:
+          name: SleepySource-1.0-Pure-CSharp-win-x64
+          path: CSharpHost/bin/Release/net8.0-windows10.0.19041.0/win-x64/publish/
+          if-no-files-found: error
+
+      - name: Commit validated C# source to rewrite branch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A CSharpHost
+          if (git diff --cached --quiet) {
+            Write-Host 'No source changes to commit.'
+            exit 0
+          }
+          git commit -m 'Build pure C# SleepySource 1.0 backend'
+          git push origin HEAD:csharp-rewrite-1.0
