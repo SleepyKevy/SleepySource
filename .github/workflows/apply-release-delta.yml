@@ -19,29 +19,32 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Reconstruct and verify release files
+      - name: Verify and apply 1.1 release delta
         shell: bash
         run: |
           set -euo pipefail
-          cat .release-upload/new-* > /tmp/sleepysource-release.b64
+          cat .release-upload/chunk-* > /tmp/sleepysource-release.b64
+          echo "955b7d0b62efe8bc278d339d7a712d0f459a5f0315a43e3087da946078bb6512  /tmp/sleepysource-release.b64" | sha256sum -c -
           base64 --decode /tmp/sleepysource-release.b64 > /tmp/sleepysource-release.zip
-          echo "783739a73e614c75a14b1a9515ecda699a3516e94cc948b50ab519b4d6c3e59b  /tmp/sleepysource-release.zip" | sha256sum -c -
+          echo "ecb88ccd928d32cfd405b365d8c48bcba79868e89ffaac7dc7073f8857804c7f  /tmp/sleepysource-release.zip" | sha256sum -c -
+          rm -rf /tmp/sleepysource-release
           mkdir -p /tmp/sleepysource-release
-          unzip -q -o /tmp/sleepysource-release.zip -d /tmp/sleepysource-release
-          cp -a /tmp/sleepysource-release/. .
+          unzip -q /tmp/sleepysource-release.zip -d /tmp/sleepysource-release
+          echo "da5b29560d3b40435630163f37ddce2a9f099efc8b0ecf44ac54f872e44c13eb  /tmp/sleepysource-release/changes.patch" | sha256sum -c -
+          echo "0069e055f4766ae531b36c79a86449517c8dcdad7028bb8f40cd52c29a816bf8  /tmp/sleepysource-release/sleepysource-mark.webp" | sha256sum -c -
+          git apply --check /tmp/sleepysource-release/changes.patch
+          git apply /tmp/sleepysource-release/changes.patch
+          cp /tmp/sleepysource-release/sleepysource-mark.webp CSharpHost/assets/sleepysource-mark.webp
           rm -rf .release-upload
           rm -f .github/workflows/apply-release-delta.yml
 
-      - name: Commit reconstructed 1.1 release candidate
+      - name: Commit clean 1.1 release candidate
         shell: bash
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          if git diff --cached --quiet; then
-            echo "No delta changes to commit."
-            exit 0
-          fi
-          git commit -m "Complete SleepySource 1.1 release candidate"
+          git diff --cached --check
+          git commit -m "Prepare SleepySource 1.1"
           git push origin HEAD:agent/sleepysource-1.1-release
