@@ -1,0 +1,122 @@
+name: SleepySource Auth Build Temporary Compile
+
+on:
+  push:
+    branches:
+      - auth-build-compile-temp
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-auth:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout compile branch
+        uses: actions/checkout@v4
+
+      - name: Reconstruct and apply exact Auth Build patch
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $parts = @(Get-ChildItem '.authbuild/diff_*.b64' | Sort-Object Name)
+          if ($parts.Count -ne 5) { throw "Expected 5 Auth patch chunks, found $($parts.Count)." }
+          $b64 = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
+          [IO.File]::WriteAllBytes('auth_git.patch.xz', [Convert]::FromBase64String($b64))
+          $actual = (Get-FileHash 'auth_git.patch.xz' -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = '762d93ffa8bc0d028e1a5b6cb441a06883fccd8c717557a073b8f262fd2b1f93'
+          if ($actual -ne $expected) { throw "Auth patch hash mismatch: $actual" }
+          $sevenZip = Join-Path $env:ProgramFiles '7-Zip\7z.exe'
+          if (-not (Test-Path $sevenZip)) { throw '7-Zip is unavailable on the Windows runner.' }
+          & $sevenZip x -y 'auth_git.patch.xz'
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path 'auth_git.patch')) { throw 'Could not decompress Auth patch.' }
+          git apply --binary --whitespace=nowarn auth_git.patch
+          if ($LASTEXITCODE -ne 0) { throw 'Could not apply exact SleepySource Auth Build patch.' }
+
+      - name: Verify exact Auth Build source manifest
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($line in Get-Content '.authbuild/expected_manifest.txt') {
+            if ($line -notmatch '^([0-9a-f]{64})  (.+)$') { throw "Invalid manifest line: $line" }
+            $expectedHash = $Matches[1]
+            $path = $Matches[2]
+            if (-not (Test-Path -LiteralPath $path)) { throw "Expected Auth source file is missing: $path" }
+            $actualHash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualHash -ne $expectedHash) { throw "Auth source hash mismatch for $path" }
+          }
+          if (Test-Path 'CSharpHost/CloudflareService.cs') { throw 'Legacy Cloudflare Quick Tunnel service is still present.' }
+          if (Test-Path 'CSharpHost/KickService.cs') { throw 'Legacy Kick credential service is still present.' }
+          if (-not (Test-Path 'CSharpHost/SleepySourceApiService.cs')) { throw 'New hosted SleepySource API service is missing.' }
+          Write-Host 'Exact SleepySource 1.1 Auth Build source manifest verified.'
+
+      - name: Use .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish Windows x64 Auth Build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet restore CSharpHost/SleepySource.csproj -r win-x64
+          dotnet publish CSharpHost/SleepySource.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore -o auth-dist
+          if (-not (Test-Path 'auth-dist/SleepySource.exe')) { throw 'SleepySource.exe was not produced.' }
+          if (Test-Path 'auth-dist/SleepySource.Engine.exe') { throw 'Legacy engine is present in Auth Build output.' }
+          if (-not (Test-Path 'auth-dist/assets/app.ico')) { throw 'Published app icon is missing.' }
+          Add-Type -AssemblyName System.Drawing
+          $embeddedIcon = [System.Drawing.Icon]::ExtractAssociatedIcon((Resolve-Path 'auth-dist/SleepySource.exe').Path)
+          if ($null -eq $embeddedIcon) { throw 'SleepySource.exe has no embedded application icon.' }
+          $embeddedIcon.Dispose()
+
+      - name: Runtime smoke-test Auth Build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $base = 'http://127.0.0.1:17891'
+          $proc = Start-Process -FilePath (Resolve-Path 'auth-dist/SleepySource.exe') -ArgumentList '--headless' -PassThru
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 40; $i++) {
+              if ($proc.HasExited) { throw "SleepySource exited before backend readiness. Exit code: $($proc.ExitCode)" }
+              try {
+                $health = Invoke-WebRequest "$base/api/health" -TimeoutSec 2 -UseBasicParsing
+                if ($health.StatusCode -eq 200 -and $health.Content.Trim() -eq 'ok') { $ready = $true; break }
+              } catch { }
+              Start-Sleep -Milliseconds 500
+            }
+            if (-not $ready) { throw 'Auth Build backend did not bind to 127.0.0.1:17891.' }
+
+            foreach ($path in @('/', '/designer', '/chat', '/overlay', '/countdown', '/alerts')) {
+              $r = Invoke-WebRequest ($base + $path) -TimeoutSec 5 -UseBasicParsing
+              if ($r.StatusCode -ne 200 -or $r.Content -notmatch '<!doctype html>') { throw "$path page smoke check failed." }
+            }
+
+            foreach ($path in @('/api/state','/api/settings','/api/countdown/state','/api/alerts/state?consume=0','/api/chat/state','/api/kick/status')) {
+              $r = Invoke-WebRequest ($base + $path) -TimeoutSec 5 -UseBasicParsing
+              if ($r.StatusCode -ne 200) { throw "$path returned HTTP $($r.StatusCode)" }
+              try { $null = $r.Content | ConvertFrom-Json } catch { throw "$path did not return JSON." }
+            }
+
+            $chatBody = @{ username = 'SmokeTester'; text = 'Auth Build smoke test'; user_id = '12345' } | ConvertTo-Json
+            $chat = Invoke-WebRequest "$base/api/chat/test" -Method Post -ContentType 'application/json' -Body $chatBody -TimeoutSec 5 -UseBasicParsing
+            if ($chat.StatusCode -ne 200 -or $chat.Content -notmatch 'SmokeTester') { throw 'Chat endpoint smoke test failed.' }
+
+            $alertBody = @{ type = 'follow'; username = 'SmokeFollower' } | ConvertTo-Json
+            $alert = Invoke-WebRequest "$base/api/alerts/test" -Method Post -ContentType 'application/json' -Body $alertBody -TimeoutSec 5 -UseBasicParsing
+            if ($alert.StatusCode -ne 200) { throw 'Alert endpoint smoke test failed.' }
+
+            Write-Host 'SleepySource 1.1 Auth Build runtime smoke checks passed.'
+          }
+          finally {
+            if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          }
+
+      - name: Upload compiled Windows Auth Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: SleepySource-1.1-Auth-Build-Windows
+          path: auth-dist/
+          if-no-files-found: error
