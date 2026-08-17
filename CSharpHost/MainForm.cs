@@ -17,10 +17,10 @@ internal sealed class MainForm : Form
     private readonly Icon applicationIcon;
     private readonly NotifyIcon trayIcon;
     private readonly ContextMenuStrip trayMenu;
+    private System.Threading.Timer? exitWatchdog;
     private bool backendReady;
     private bool dashboardOpen;
     private bool shutdownStarted;
-    private bool shutdownComplete;
 
     public MainForm()
     {
@@ -49,8 +49,9 @@ internal sealed class MainForm : Form
         trayMenu.Items.Add(new ToolStripSeparator());
         trayMenu.Items.Add("Exit SleepySource", null, (_, _) => ExitApplication());
 
-        // This is a standard Windows notification-area (system tray) icon.
-        // SleepySource never displays balloon notifications from this icon.
+        // Standard Windows notification-area (system tray) icon. SleepySource does
+        // not use tray balloon notifications. Windows decides whether an app icon is
+        // pinned directly to the tray or placed in the hidden-icons overflow area.
         trayIcon = new NotifyIcon
         {
             Text = "SleepySource 1.0 — Made by SleepyKev • 2026",
@@ -64,8 +65,6 @@ internal sealed class MainForm : Form
         FormClosing += OnFormClosing;
         Resize += (_, _) =>
         {
-            // Keep the window represented on the Windows taskbar when minimized.
-            // The notification-area icon remains available at the same time.
             if (WindowState == FormWindowState.Minimized)
                 ShowInTaskbar = true;
         };
@@ -120,7 +119,7 @@ internal sealed class MainForm : Form
                 AppTitle,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
-            Close();
+            BeginExit();
         }
     }
 
@@ -251,80 +250,49 @@ internal sealed class MainForm : Form
         BringToFront();
     }
 
-    private void ExitApplication()
-    {
-        Close();
-    }
+    private void ExitApplication() => BeginExit();
 
     private void OnFormClosing(object? sender, FormClosingEventArgs e)
     {
-        if (shutdownComplete)
-            return;
-
-        // X means exit. Do not block the WinForms UI thread while Kestrel, the
-        // media watcher, Cloudflare, and WebView2 shut down.
         e.Cancel = true;
+        BeginExit();
+    }
+
+    private void BeginExit()
+    {
         if (shutdownStarted)
             return;
 
         shutdownStarted = true;
         backendReady = false;
 
-        // Make SleepySource disappear immediately from the desktop, taskbar,
-        // and notification area before doing background cleanup.
+        // Remove all visible UI immediately. No WebView2/WinForms disposal is allowed
+        // on this path because native WebView shutdown can stall the UI thread.
         trayIcon.Visible = false;
         ShowInTaskbar = false;
         Hide();
 
-        try { webView.CoreWebView2?.Stop(); } catch { }
-        try { webView.Dispose(); } catch { }
+        // Independent watchdog: even if backend/native cleanup blocks, the process is
+        // terminated after the grace period instead of lingering invisibly in Task Manager.
+        exitWatchdog = new System.Threading.Timer(
+            static _ => Environment.Exit(0),
+            null,
+            GracefulExitBudget,
+            Timeout.InfiniteTimeSpan);
 
-        _ = FinishShutdownAsync();
-    }
-
-    private async Task FinishShutdownAsync()
-    {
-        var gracefulStop = Task.Run(() =>
+        _ = Task.Run(() =>
         {
             try { backend.Stop(); }
             catch { }
+            Environment.Exit(0);
         });
-
-        var completed = await Task.WhenAny(gracefulStop, Task.Delay(GracefulExitBudget));
-        if (completed != gracefulStop)
-        {
-            // Never leave an invisible SleepySource process sitting in Task Manager.
-            // The normal graceful path is given 1.5 seconds first.
-            Environment.Exit(0);
-            return;
-        }
-
-        shutdownComplete = true;
-        if (IsDisposed || !IsHandleCreated)
-        {
-            Environment.Exit(0);
-            return;
-        }
-
-        try
-        {
-            BeginInvoke(new Action(() =>
-            {
-                shutdownComplete = true;
-                Close();
-                Application.ExitThread();
-            }));
-        }
-        catch
-        {
-            Environment.Exit(0);
-        }
     }
 
     protected override void Dispose(bool disposing)
     {
         if (disposing)
         {
+            exitWatchdog?.Dispose();
             trayIcon.Visible = false;
             trayIcon.Dispose();
             trayMenu.Dispose();
