@@ -1,0 +1,58 @@
+name: Fix SleepySource CSharp Backup Restore Directories
+
+on:
+  push:
+    branches:
+      - csharp-rewrite-1.0
+    paths:
+      - .github/workflows/fix-backup-restore-directories.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: csharp-rewrite-1.0
+          fetch-depth: 0
+
+      - name: Make restore reload recreate managed directories
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          p=Path('CSharpHost/CoreStateService.cs')
+          s=p.read_text(encoding='utf-8')
+          old='''    public void ReloadFromDisk()\n    {\n        var next = AppUtil.LoadJsonOrDefault(SettingsPath, () => new Settings(), "settings");'''
+          new='''    public void ReloadFromDisk()\n    {\n        foreach (var dir in new[] { DataDir, MediaDir, FontDir, ProfileDir }) Directory.CreateDirectory(dir);\n        var next = AppUtil.LoadJsonOrDefault(SettingsPath, () => new Settings(), "settings");'''
+          if s.count(old)!=1: raise SystemExit(f'Core ReloadFromDisk anchor count: {s.count(old)}')
+          s=s.replace(old,new)
+          old2='''    private string? ResolveMediaFile(string? storedName, string prefix)\n    {\n        if (!string.IsNullOrWhiteSpace(storedName))'''
+          new2='''    private string? ResolveMediaFile(string? storedName, string prefix)\n    {\n        if (!Directory.Exists(MediaDir)) return null;\n        if (!string.IsNullOrWhiteSpace(storedName))'''
+          if s.count(old2)!=1: raise SystemExit(f'ResolveMediaFile anchor count: {s.count(old2)}')
+          s=s.replace(old2,new2)
+          p.write_text(s,encoding='utf-8',newline='')
+
+          p=Path('CSharpHost/CountdownService.cs')
+          s=p.read_text(encoding='utf-8')
+          old='''    public void ReloadFromDisk()\n    {\n        var next = AppUtil.LoadJsonOrDefault(settingsPath, () => new CountdownSettings(), "countdown settings");'''
+          new='''    public void ReloadFromDisk()\n    {\n        Directory.CreateDirectory(profileDir);\n        var next = AppUtil.LoadJsonOrDefault(settingsPath, () => new CountdownSettings(), "countdown settings");'''
+          if s.count(old)!=1: raise SystemExit(f'Countdown ReloadFromDisk anchor count: {s.count(old)}')
+          s=s.replace(old,new)
+          p.write_text(s,encoding='utf-8',newline='')
+          PY
+          git diff --check
+
+      - name: Commit backup restore fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add CSharpHost/CoreStateService.cs CSharpHost/CountdownService.cs
+          git commit -m 'Fix C# backup restore directory recreation'
+          git push origin HEAD:csharp-rewrite-1.0
