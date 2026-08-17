@@ -1,0 +1,49 @@
+name: Diagnose SleepySource CSharp Mutation Failure
+
+on:
+  push:
+    branches:
+      - csharp-rewrite-1.0
+    paths:
+      - .github/workflows/csharp-mutation-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: csharp-rewrite-1.0
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Publish C# candidate
+        shell: pwsh
+        run: |
+          dotnet restore CSharpHost/SleepySource.csproj -r win-x64
+          dotnet publish CSharpHost/SleepySource.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore -o diag
+      - name: Trace mutation scenario
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'; $base='http://127.0.0.1:17891'
+          function WaitReady($p){for($i=0;$i-lt50;$i++){try{if((Invoke-WebRequest "$base/api/health" -UseBasicParsing -TimeoutSec 2).StatusCode-eq200){return}}catch{};Start-Sleep -Milliseconds 400};throw 'readiness timeout'}
+          function G($path){Write-Host "GET $path";try{return Invoke-RestMethod ($base+$path) -TimeoutSec 10}catch{Write-Host "FAILED GET $path";if($_.ErrorDetails){Write-Host $_.ErrorDetails.Message};throw}}
+          function P($path,$body){Write-Host "POST $path";try{return Invoke-RestMethod ($base+$path) -Method Post -ContentType 'application/json' -Body ($body|ConvertTo-Json -Depth 100 -Compress) -TimeoutSec 15}catch{Write-Host "FAILED POST $path";if($_.ErrorDetails){Write-Host $_.ErrorDetails.Message};throw}}
+          $p=Start-Process -FilePath (Resolve-Path 'diag/SleepySource.exe') -ArgumentList '--headless' -PassThru
+          try{
+            WaitReady $p
+            $s=(G '/api/settings').settings;$s.designer_theme='purple';$s.text_size=37;$s.show_progress=$false;$null=P '/api/settings' $s
+            $cs=G '/api/chat/settings';$cs.font_size=29;$cs.background_opacity=61;$null=P '/api/chat/settings' $cs;$null=P '/api/chat/test' @{username='ParityChatter';text='Mutation parity chat';user_id='4242'};$null=Invoke-WebRequest "$base/api/chat/clear" -Method Post -UseBasicParsing
+            $cd=(G '/api/countdown/state').settings;$cd.minutes=1;$cd.seconds=7;$cd.prefix='CI ';$null=P '/api/countdown/settings' $cd;$null=P '/api/countdown/profiles' @{action='save';name='CI_Countdown'};$null=G '/api/countdown/profiles';$null=P '/api/countdown/control' @{action='start'};Start-Sleep -Milliseconds 150;$null=P '/api/countdown/control' @{action='pause'};$null=P '/api/countdown/control' @{action='reset'}
+            $as=G '/api/alerts/settings';$as.queue_limit=7;$null=P '/api/alerts/settings' $as;$null=P '/api/alerts/test' @{type='follow';username='ParityFollower'};$null=G '/api/alerts/state?consume=0';$null=G '/api/alerts/state?consumer=overlay';$null=P '/api/alerts/control' @{action='clear'}
+            $null=P '/api/profiles' @{action='save';name='CI_Profile'};$null=P '/api/profiles' @{action='duplicate';name='CI_Profile';new_name='CI_Profile_Copy'};$null=P '/api/profiles' @{action='rename';name='CI_Profile_Copy';new_name='CI_Profile_Renamed'};$null=P '/api/profiles' @{action='set_default';name='CI_Profile_Renamed'};$null=G '/api/profiles';$null=P '/api/profiles' @{action='clear_default';name=''};$null=P '/api/profiles' @{action='delete';name='CI_Profile_Renamed'}
+            Write-Host 'BACKUP EXPORT';$backup=Join-Path (Resolve-Path '.').Path 'diag-backup.zip';Invoke-WebRequest "$base/api/backup/export" -OutFile $backup -UseBasicParsing -TimeoutSec 20
+            $chg=(G '/api/settings').settings;$chg.designer_theme='red';$null=P '/api/settings' $chg;$null=G '/api/settings'
+            Write-Host 'BACKUP IMPORT';Invoke-WebRequest "$base/api/backup/import" -Method Post -Form @{backup=Get-Item $backup} -UseBasicParsing -TimeoutSec 20|Out-Null
+            $null=G '/api/settings'
+            Write-Host 'PRE-RESTART FINAL READS';$null=G '/api/chat/settings';$null=G '/api/countdown/state';$null=G '/api/alerts/settings';$null=G '/api/profiles'
+            Write-Host 'C# mutation diagnostic reached end successfully.'
+          }finally{if($p-and-not$p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}}
