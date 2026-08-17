@@ -2,6 +2,7 @@ using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using System.Diagnostics;
 using System.Drawing;
+using System.Runtime.InteropServices;
 
 namespace SleepySource;
 
@@ -12,6 +13,10 @@ internal sealed class MainForm : Form
     private const string EngineHost = "http://127.0.0.1:17891/";
     private const int WM_CLOSE = 0x0010;
     private const int GracefulExitBudgetMs = 500;
+    private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+    private const int DWMWA_BORDER_COLOR = 34;
+    private const int DWMWA_CAPTION_COLOR = 35;
+    private const int DWMWA_TEXT_COLOR = 36;
 
     private readonly WebView2 webView;
     private readonly BackendHost backend = new();
@@ -21,6 +26,13 @@ internal sealed class MainForm : Form
     private bool backendReady;
     private bool dashboardOpen;
     private bool shutdownStarted;
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(
+        IntPtr hwnd,
+        int dwAttribute,
+        ref int pvAttribute,
+        int cbAttribute);
 
     public MainForm()
     {
@@ -98,6 +110,41 @@ internal sealed class MainForm : Form
 
         return (Icon)SystemIcons.Application.Clone();
     }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        ApplyWindowsTitleBarTheme();
+    }
+
+    private void ApplyWindowsTitleBarTheme()
+    {
+        // Direct caption/border color attributes are supported on Windows 11.
+        // Windows 10 simply keeps its normal system-managed title bar.
+        if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
+            return;
+
+        try
+        {
+            var darkMode = 1;
+            var captionColor = ToColorRef(Color.FromArgb(2, 5, 10));
+            var textColor = ToColorRef(Color.White);
+            var borderColor = captionColor;
+            var valueSize = sizeof(int);
+
+            _ = DwmSetWindowAttribute(Handle, DWMWA_USE_IMMERSIVE_DARK_MODE, ref darkMode, valueSize);
+            _ = DwmSetWindowAttribute(Handle, DWMWA_CAPTION_COLOR, ref captionColor, valueSize);
+            _ = DwmSetWindowAttribute(Handle, DWMWA_TEXT_COLOR, ref textColor, valueSize);
+            _ = DwmSetWindowAttribute(Handle, DWMWA_BORDER_COLOR, ref borderColor, valueSize);
+        }
+        catch
+        {
+            // Keep the normal Windows title bar if DWM customization is unavailable.
+        }
+    }
+
+    private static int ToColorRef(Color color) =>
+        color.R | (color.G << 8) | (color.B << 16);
 
     protected override void WndProc(ref Message m)
     {
