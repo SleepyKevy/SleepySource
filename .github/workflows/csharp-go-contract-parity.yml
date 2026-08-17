@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - csharp-rewrite-1.0
+    paths:
+      - .github/workflows/csharp-go-contract-parity.yml
   workflow_dispatch:
 
 permissions:
@@ -13,10 +15,17 @@ jobs:
   parity:
     runs-on: windows-latest
     steps:
-      - name: Checkout rewrite and baseline
+      - name: Checkout pure C# rewrite
         uses: actions/checkout@v4
         with:
           ref: csharp-rewrite-1.0
+          path: current
+
+      - name: Checkout frozen Go migration baseline
+        uses: actions/checkout@v4
+        with:
+          ref: 1855c75291fbdad13ee0272b222d37cefbc83f4d
+          path: baseline
 
       - name: Use .NET 8
         uses: actions/setup-dotnet@v4
@@ -27,27 +36,32 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.23.x'
+          cache: false
 
       - name: Verify UI and asset bytes are unchanged
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           function Compare-Tree([string]$left, [string]$right) {
-            $l = Get-ChildItem $left -File -Recurse | ForEach-Object {
-              [pscustomobject]@{ Rel = $_.FullName.Substring((Resolve-Path $left).Path.Length).TrimStart('\'); Hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash }
+            $leftRoot = (Resolve-Path $left).Path
+            $rightRoot = (Resolve-Path $right).Path
+            $ld = @{}
+            Get-ChildItem $left -File -Recurse | ForEach-Object {
+              $rel = $_.FullName.Substring($leftRoot.Length).TrimStart('\')
+              $ld[$rel] = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
             }
-            $r = Get-ChildItem $right -File -Recurse | ForEach-Object {
-              [pscustomobject]@{ Rel = $_.FullName.Substring((Resolve-Path $right).Path.Length).TrimStart('\'); Hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash }
+            $rd = @{}
+            Get-ChildItem $right -File -Recurse | ForEach-Object {
+              $rel = $_.FullName.Substring($rightRoot.Length).TrimStart('\')
+              $rd[$rel] = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
             }
-            $ld = @{}; foreach ($x in $l) { $ld[$x.Rel] = $x.Hash }
-            $rd = @{}; foreach ($x in $r) { $rd[$x.Rel] = $x.Hash }
             $all = @($ld.Keys + $rd.Keys | Sort-Object -Unique)
             $bad = @()
             foreach ($rel in $all) { if ($ld[$rel] -ne $rd[$rel]) { $bad += $rel } }
-            if ($bad.Count) { throw "Tree mismatch between $left and ${right}: $($bad -join ', ')" }
+            if ($bad.Count) { throw "Tree mismatch between ${left} and ${right}: $($bad -join ', ')" }
           }
-          Compare-Tree 'CompatibilityEngine/web' 'CSharpHost/web'
-          Compare-Tree 'CompatibilityEngine/assets' 'CSharpHost/assets'
+          Compare-Tree 'baseline/CompatibilityEngine/web' 'current/CSharpHost/web'
+          Compare-Tree 'baseline/CompatibilityEngine/assets' 'current/CSharpHost/assets'
           Write-Host 'UI and asset trees are byte-identical.'
 
       - name: Verify HTTP route surface parity
@@ -55,20 +69,24 @@ jobs:
         run: |
           @'
           import re, pathlib, sys
-          root = pathlib.Path('.')
+          go_root = pathlib.Path('baseline/CompatibilityEngine')
           go_routes=set()
-          for p in (root/'CompatibilityEngine').glob('*.go'):
+          for p in go_root.glob('*.go'):
               t=p.read_text(encoding='utf-8', errors='ignore')
               go_routes.update(m.group(1) for m in re.finditer(r'\.(?:HandleFunc|Handle)\(\s*"(/[^"]*)"', t))
-          cs=(root/'CSharpHost'/'BackendHost.cs').read_text(encoding='utf-8', errors='ignore')
+          cs=pathlib.Path('current/CSharpHost/BackendHost.cs').read_text(encoding='utf-8', errors='ignore')
           cs_routes=set(m.group(1) for m in re.finditer(r'\.Map(?:Get|Post|Put|Delete|Methods)\(\s*"(/[^"]*)"',cs))
           cs_routes.update(m.group(1) for m in re.finditer(r'MapPage\(web,\s*"(/[^"]*)"',cs))
           if '/assets/{**name}' in cs_routes:
               cs_routes.remove('/assets/{**name}'); cs_routes.add('/assets/')
-          missing=sorted(go_routes-cs_routes); extra=sorted(cs_routes-go_routes)
-          print('Go route count:',len(go_routes)); print('C# route count:',len(cs_routes))
+          missing=sorted(go_routes-cs_routes)
+          extra=sorted(cs_routes-go_routes)
+          print('Go route count:',len(go_routes))
+          print('C# route count:',len(cs_routes))
           if missing or extra:
-              print('Missing in C#:', missing); print('Extra in C#:', extra); sys.exit(1)
+              print('Missing in C#:', missing)
+              print('Extra in C#:', extra)
+              sys.exit(1)
           print('Route surface is identical.')
           '@ | python -
 
@@ -77,21 +95,21 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item go-reference -ItemType Directory -Force | Out-Null
-          Push-Location CompatibilityEngine
+          Push-Location baseline/CompatibilityEngine
           go test ./...
           if ($LASTEXITCODE -ne 0) { throw 'Go reference tests failed.' }
-          go build -o ../go-reference/SleepySource.Engine.exe .
+          go build -o ../../go-reference/SleepySource.Engine.exe .
           if ($LASTEXITCODE -ne 0) { throw 'Go reference build failed.' }
           Pop-Location
-          Copy-Item CompatibilityEngine/web go-reference/web -Recurse
-          Copy-Item CompatibilityEngine/assets go-reference/assets -Recurse
+          Copy-Item baseline/CompatibilityEngine/web go-reference/web -Recurse
+          Copy-Item baseline/CompatibilityEngine/assets go-reference/assets -Recurse
 
       - name: Build pure C# backend
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          dotnet restore CSharpHost/SleepySource.csproj -r win-x64
-          dotnet publish CSharpHost/SleepySource.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore -o csharp-reference
+          dotnet restore current/CSharpHost/SleepySource.csproj -r win-x64
+          dotnet publish current/CSharpHost/SleepySource.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore -o csharp-reference
           if (-not (Test-Path csharp-reference/SleepySource.exe)) { throw 'Pure C# executable missing.' }
           if (Test-Path csharp-reference/SleepySource.Engine.exe) { throw 'Legacy Go engine leaked into C# output.' }
 
@@ -117,7 +135,10 @@ jobs:
           function Wait-Ready($proc) {
             for ($i=0; $i -lt 40; $i++) {
               if ($proc.HasExited) { throw "Backend exited early with code $($proc.ExitCode)." }
-              try { $r=Invoke-WebRequest "$base/api/health" -TimeoutSec 2 -UseBasicParsing; if ($r.StatusCode -eq 200) { return } } catch { }
+              try {
+                $r=Invoke-WebRequest "$base/api/health" -TimeoutSec 2 -UseBasicParsing
+                if ($r.StatusCode -eq 200) { return }
+              } catch { }
               Start-Sleep -Milliseconds 500
             }
             throw 'Backend did not become ready.'
