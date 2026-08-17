@@ -1,22 +1,21 @@
-SLEEPYSOURCE™ 1.0
+SLEEPYSOURCE™ 1.1
 =================
 Made by SleepyKev • 2026
 
-SleepySource 1.0 is a Windows streaming tools hub for Kick and OBS. This revamp is implemented in C#/.NET 8 while preserving the existing SleepySource interface, OBS Browser Source workflow and portable data layout.
+SleepySource 1.1 is a Windows streaming tools hub for Kick and OBS, built as a self-contained C#/.NET 8 application with a WebView2 interface and local OBS Browser Source server.
 
-ARCHITECTURE
-------------
+CORE
+----
 - C# / .NET 8 WinForms desktop application
 - Microsoft WebView2 interface
 - In-process ASP.NET Core local HTTP/OBS server
-- C# services for alerts, chat, countdown, Kick, profiles/backups, Cloudflare relay, Windows media sessions, health and updates
-- No Go compatibility engine
-- No SleepySource.Engine.exe
-- SleepySource_Data remains portable beside the application
+- No Go compatibility engine or SleepySource.Engine.exe
+- Portable SleepySource_Data folder beside the application
 
 FEATURES
 --------
 - Stream Dashboard
+- Branded startup splash
 - Alert Studio and alert queue
 - Kick chat overlay and integration
 - Now Playing / Windows media sessions
@@ -35,8 +34,12 @@ Now Playing: http://127.0.0.1:17891/overlay
 Countdown:   http://127.0.0.1:17891/countdown
 Designer:    http://127.0.0.1:17891/designer
 
-BUILD
------
+COMPATIBILITY
+-------------
+SleepySource 1.1 keeps the existing 127.0.0.1:17891 service address, OBS routes, SleepySource_Data layout, settings/profile formats and normal user workflow.
+
+SOURCE BUILD
+------------
 Requirements:
 - Windows 10/11 x64
 - .NET 8 SDK
@@ -47,14 +50,6 @@ From the repository root:
 
 The published application is SleepySource.exe. Microsoft Edge WebView2 Runtime is required and is normally included with current Windows 10/11 installations.
 
-COMPATIBILITY
--------------
-The revamp preserves the local service address at 127.0.0.1:17891, existing OBS routes, SleepySource_Data layout, settings/profile formats and user-facing workflow from the migration baseline.
-
-VALIDATION
-----------
-The C# rewrite is compiled and runtime-tested on Windows through GitHub Actions. A frozen pre-removal Go baseline was used during migration to compare route surface, default JSON contracts, mutations, backup restore and restart persistence. The final release tree contains no Go source or Go runtime dependency.
-
 WINDOWS
 -------
-Windows x64 only. This build is unsigned, so Windows SmartScreen may warn on first launch.
+Windows x64 only. SleepySource is currently unsigned, so Windows SmartScreen may warn on first launch.

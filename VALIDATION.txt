@@ -1,62 +1,18 @@
-SLEEPYSOURCE™ 1.0 — VALIDATION
+SLEEPYSOURCE™ 1.1 — VALIDATION
 ==============================
 Made by SleepyKev • 2026
 
-ARCHITECTURE
-------------
-[PASS] SleepySource 1.0 is a pure C#/.NET 8 application.
-[PASS] WinForms + Microsoft WebView2 desktop host.
-[PASS] Local HTTP/OBS server runs in-process in C#.
-[PASS] No CompatibilityEngine source directory in the release tree.
-[PASS] No .go source files or go.mod in the release tree.
-[PASS] No SleepySource.Engine.exe dependency in the published output.
+PACKAGE / SOURCE CHECKS
+-----------------------
+[PASS] Source tree contains the pure C#/.NET 8 application only.
+[PASS] No Go source or SleepySource.Engine.exe is present.
+[PASS] Version-bearing source, UI and project metadata are set to 1.1 / 1.1.0.
+[PASS] Public web and asset files are synchronized from the 1.1 source tree.
+[PASS] ZIP structure contains no build cache, temporary, duplicate or junk files.
+[PASS] Existing local route/data compatibility is unchanged by the 1.1 version refresh.
 
-WINDOWS BUILD
--------------
-[PASS] Windows x64 restore and publish on GitHub Actions.
-[PASS] Self-contained single-file SleepySource.exe produced.
-[PASS] Published build contains the existing web UI and assets.
-[PASS] Permanent smoke gate rejects any reintroduced SleepySource.Engine.exe.
+WINDOWS RUNTIME BASELINE
+------------------------
+The underlying C# release line previously passed the Windows GitHub Actions smoke suite, including win-x64 publish, local backend startup, page/API probes, backup export, alert/chat/countdown checks, title-bar/tray behavior and route parity validation.
 
-GO-TO-C# CONTRACT VALIDATION
-----------------------------
-A frozen pre-removal Go migration baseline was used only as a validation reference.
-[PASS] Existing UI/assets were preserved, with the intentional visible version-label update from 1.0 Beta to 1.0.
-[PASS] HTTP route surface matches: 71 Go routes / 71 C# routes.
-[PASS] Frozen Go reference tests and Windows reference build succeeded.
-[PASS] Pure C# backend build succeeded.
-[PASS] Captured default JSON API contract shapes match.
-[PASS] Countdown state/settings/profile response wrappers match.
-[PASS] Alert queue/default media omission behavior matches.
-[PASS] Chat optional/default response fields match.
-[PASS] Cloudflare optional/default status fields match.
-[PASS] Countdown font-upload response matches the baseline.
-
-MUTATION + PERSISTENCE PARITY
------------------------------
-The same mutation scenario was run against the frozen Go reference and the C# rewrite.
-[PASS] Main settings save and restart persistence.
-[PASS] Chat settings, test messages and clear behavior.
-[PASS] Countdown settings, profiles, start/pause/reset and persistence.
-[PASS] Alert settings, queue, overlay consumption, clear and persistence.
-[PASS] Workspace profile save/duplicate/rename/default/delete behavior.
-[PASS] Backup ZIP export, settings mutation, backup import and restored state.
-[PASS] Credential-free expected error/status behavior.
-[PASS] Normalized persisted results match after process restart.
-
-PURE C# RUNTIME/API SMOKE
--------------------------
-The permanent smoke test launches the real Windows SleepySource.exe and probes 127.0.0.1:17891.
-[PASS] /api/health
-[PASS] /, /designer, /chat, /overlay, /countdown, /alerts
-[PASS] Core settings/state JSON routes
-[PASS] Chat test message round-trip
-[PASS] Alert test queue
-[PASS] Countdown control
-[PASS] Backup ZIP export
-[PASS] SleepySource_Data creation beside the executable
-[PASS] No SleepySource.Engine.exe in the tested publish
-
-EXTERNAL SERVICE NOTE
----------------------
-Live Kick OAuth/webhook delivery and a live Cloudflare Quick Tunnel require real account credentials/network access and are not exercised by credential-free CI. Their C# route surface, state contracts and integration/process code are included in the rewrite and covered by build/static compatibility checks.
+The 1.1 source keeps the same runtime implementation apart from release-version strings. After the repository is updated, the included GitHub Actions workflow should be run against the exact 1.1 commit before the GitHub release is published.
