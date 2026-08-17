@@ -1,0 +1,48 @@
+name: Fix Pure C# Alert Overlay Consume
+
+on:
+  push:
+    branches:
+      - csharp-rewrite-1.0
+    paths:
+      - .validation/FIX_ALERT_CONSUME
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: csharp-rewrite-1.0
+          fetch-depth: 0
+
+      - name: Make alert media checks null-safe
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('CSharpHost/AlertService.cs')
+          s=p.read_text(encoding='utf-8')
+          replacements={
+            'st.VisualFile.Length > 0': '!string.IsNullOrWhiteSpace(st.VisualFile)',
+            'st.SoundFile.Length > 0': '!string.IsNullOrWhiteSpace(st.SoundFile)',
+          }
+          for old,new in replacements.items():
+              count=s.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one {old!r}, found {count}')
+              s=s.replace(old,new)
+          p.write_text(s,encoding='utf-8',newline='\n')
+          PY
+
+      - name: Commit product fix
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add CSharpHost/AlertService.cs
+          git commit -m 'Fix pure C# alert overlay consumption'
+          git push origin HEAD:csharp-rewrite-1.0
