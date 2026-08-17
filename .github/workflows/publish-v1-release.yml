@@ -1,0 +1,87 @@
+name: Publish SleepySource 1.0 Official Release
+
+on:
+  push:
+    branches:
+      - release-v1-workflow
+    paths:
+      - .github/workflows/publish-v1-release.yml
+
+permissions:
+  contents: write
+
+jobs:
+  publish-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout release workflow branch
+        uses: actions/checkout@v4
+
+      - name: Use .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build official Windows package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet restore CSharpHost/SleepySource.csproj -r win-x64
+          dotnet publish CSharpHost/SleepySource.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore -o release-dist
+          if (-not (Test-Path 'release-dist/SleepySource.exe')) { throw 'SleepySource.exe was not produced.' }
+          if (-not (Test-Path 'release-dist/assets/app.ico')) { throw 'Published app icon is missing.' }
+
+      - name: Package public and source ZIPs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $work = Join-Path $PWD 'release-work'
+          $public = Join-Path $work 'SleepySource 1.0 Official'
+          $source = Join-Path $work 'SleepySource 1.0 Official Source'
+          New-Item -ItemType Directory -Force -Path $public | Out-Null
+          New-Item -ItemType Directory -Force -Path $source | Out-Null
+
+          Copy-Item 'release-dist/SleepySource.exe' $public
+          Copy-Item 'release-dist/assets' $public -Recurse
+          Copy-Item 'release-dist/web' $public -Recurse
+          Copy-Item 'README.txt' $public
+          Copy-Item 'RELEASE_NOTES.txt' $public
+
+          Copy-Item 'README.txt' $source
+          Copy-Item 'RELEASE_NOTES.txt' $source
+          Copy-Item 'VALIDATION.txt' $source
+          Copy-Item '.gitignore' $source
+          Copy-Item 'CSharpHost' $source -Recurse
+          New-Item -ItemType Directory -Force -Path (Join-Path $source '.github/workflows') | Out-Null
+          Copy-Item '.github/workflows/csharp-runtime-smoke.yml' (Join-Path $source '.github/workflows/csharp-runtime-smoke.yml')
+
+          Compress-Archive -Path $public -DestinationPath 'SleepySource_1.0_Official_Public.zip' -CompressionLevel Optimal
+          Compress-Archive -Path $source -DestinationPath 'SleepySource_1.0_Official_Source.zip' -CompressionLevel Optimal
+
+          if ((Get-Item 'SleepySource_1.0_Official_Public.zip').Length -lt 1000000) { throw 'Public ZIP is unexpectedly small.' }
+          if ((Get-Item 'SleepySource_1.0_Official_Source.zip').Length -lt 100000) { throw 'Source ZIP is unexpectedly small.' }
+          Get-FileHash 'SleepySource_1.0_Official_Public.zip' -Algorithm SHA256
+          Get-FileHash 'SleepySource_1.0_Official_Source.zip' -Algorithm SHA256
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          gh release create v1.0 `
+            'SleepySource_1.0_Official_Public.zip' `
+            'SleepySource_1.0_Official_Source.zip' `
+            --repo '${{ github.repository }}' `
+            --target '655f5c1fff676cc597edfee116710a3b7ddd35ef' `
+            --title 'SleepySource 1.0 Official' `
+            --notes-file 'RELEASE_NOTES.txt'
+
+      - name: Remove temporary release branch
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --method DELETE '/repos/${{ github.repository }}/git/refs/heads/release-v1-workflow'
