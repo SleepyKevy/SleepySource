@@ -27,6 +27,6 @@
     <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
   <ItemGroup>
-    <EmbeddedResource Include="splash.jpg" LogicalName="SleepySource.SplashTest.splash.jpg" />
+    <EmbeddedResource Include="..\CSharpHost\assets\default.png" LogicalName="SleepySource.SplashTest.default.png" Link="default.png" />
   </ItemGroup>
 </Project>
