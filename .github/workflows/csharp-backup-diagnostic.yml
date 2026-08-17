@@ -45,3 +45,5 @@ jobs:
             Write-Host "IMPORT HTTP $($r.StatusCode): $($r.Content)"
             if([int]$r.StatusCode-ge400){Start-Sleep -Seconds 1;Write-Host '--- STDERR ---';if(Test-Path $err){Get-Content $err};Write-Host '--- STDOUT ---';if(Test-Path $out){Get-Content $out};throw 'backup import failed'}
           }finally{if($p-and-not$p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}}
+
+# rerun after managed-directory restore fix
