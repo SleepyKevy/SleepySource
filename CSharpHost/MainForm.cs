@@ -10,6 +10,7 @@ internal sealed class MainForm : Form
     private const string AppTitle = "SleepySource 1.0";
     private const string LocalHost = "https://sleepysource.local/";
     private const string EngineHost = "http://127.0.0.1:17891/";
+    private static readonly TimeSpan GracefulExitBudget = TimeSpan.FromMilliseconds(1500);
 
     private readonly WebView2 webView;
     private readonly BackendHost backend = new();
@@ -18,6 +19,8 @@ internal sealed class MainForm : Form
     private readonly ContextMenuStrip trayMenu;
     private bool backendReady;
     private bool dashboardOpen;
+    private bool shutdownStarted;
+    private bool shutdownComplete;
 
     public MainForm()
     {
@@ -46,6 +49,8 @@ internal sealed class MainForm : Form
         trayMenu.Items.Add(new ToolStripSeparator());
         trayMenu.Items.Add("Exit SleepySource", null, (_, _) => ExitApplication());
 
+        // This is a standard Windows notification-area (system tray) icon.
+        // SleepySource never displays balloon notifications from this icon.
         trayIcon = new NotifyIcon
         {
             Text = "SleepySource 1.0 — Made by SleepyKev • 2026",
@@ -60,7 +65,7 @@ internal sealed class MainForm : Form
         Resize += (_, _) =>
         {
             // Keep the window represented on the Windows taskbar when minimized.
-            // The tray icon remains visible at the same time for quick access.
+            // The notification-area icon remains available at the same time.
             if (WindowState == FormWindowState.Minimized)
                 ShowInTaskbar = true;
         };
@@ -98,6 +103,7 @@ internal sealed class MainForm : Form
     private async void OnShown(object? sender, EventArgs e)
     {
         Shown -= OnShown;
+        trayIcon.Visible = true;
         try
         {
             using var startupCts = new CancellationTokenSource(TimeSpan.FromSeconds(16));
@@ -235,6 +241,9 @@ internal sealed class MainForm : Form
 
     private void RestoreFromTray()
     {
+        if (shutdownStarted)
+            return;
+
         ShowInTaskbar = true;
         Show();
         WindowState = FormWindowState.Normal;
@@ -249,15 +258,74 @@ internal sealed class MainForm : Form
 
     private void OnFormClosing(object? sender, FormClosingEventArgs e)
     {
-        // Closing the window with X exits SleepySource completely.
+        if (shutdownComplete)
+            return;
+
+        // X means exit. Do not block the WinForms UI thread while Kestrel, the
+        // media watcher, Cloudflare, and WebView2 shut down.
+        e.Cancel = true;
+        if (shutdownStarted)
+            return;
+
+        shutdownStarted = true;
+        backendReady = false;
+
+        // Make SleepySource disappear immediately from the desktop, taskbar,
+        // and notification area before doing background cleanup.
         trayIcon.Visible = false;
-        backend.Stop();
+        ShowInTaskbar = false;
+        Hide();
+
+        try { webView.CoreWebView2?.Stop(); } catch { }
+        try { webView.Dispose(); } catch { }
+
+        _ = FinishShutdownAsync();
+    }
+
+    private async Task FinishShutdownAsync()
+    {
+        var gracefulStop = Task.Run(() =>
+        {
+            try { backend.Stop(); }
+            catch { }
+        });
+
+        var completed = await Task.WhenAny(gracefulStop, Task.Delay(GracefulExitBudget));
+        if (completed != gracefulStop)
+        {
+            // Never leave an invisible SleepySource process sitting in Task Manager.
+            // The normal graceful path is given 1.5 seconds first.
+            Environment.Exit(0);
+            return;
+        }
+
+        shutdownComplete = true;
+        if (IsDisposed || !IsHandleCreated)
+        {
+            Environment.Exit(0);
+            return;
+        }
+
+        try
+        {
+            BeginInvoke(new Action(() =>
+            {
+                shutdownComplete = true;
+                Close();
+                Application.ExitThread();
+            }));
+        }
+        catch
+        {
+            Environment.Exit(0);
+        }
     }
 
     protected override void Dispose(bool disposing)
     {
         if (disposing)
         {
+            trayIcon.Visible = false;
             trayIcon.Dispose();
             trayMenu.Dispose();
             webView.Dispose();
