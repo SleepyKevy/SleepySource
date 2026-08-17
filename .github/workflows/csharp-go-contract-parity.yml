@@ -44,7 +44,7 @@ jobs:
             $all = @($ld.Keys + $rd.Keys | Sort-Object -Unique)
             $bad = @()
             foreach ($rel in $all) { if ($ld[$rel] -ne $rd[$rel]) { $bad += $rel } }
-            if ($bad.Count) { throw "Tree mismatch between $left and $right: $($bad -join ', ')" }
+            if ($bad.Count) { throw "Tree mismatch between $left and ${right}: $($bad -join ', ')" }
           }
           Compare-Tree 'CompatibilityEngine/web' 'CSharpHost/web'
           Compare-Tree 'CompatibilityEngine/assets' 'CSharpHost/assets'
