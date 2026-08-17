@@ -60,7 +60,7 @@ internal sealed class AlertService
             var now = AppUtil.NowMS(); if (consume) Advance(now);
             return new AlertState
             {
-                Settings = Clone(settings), Current = current == null ? null : Clone(current), Queue = queue.Count == 0 ? null! : queue.Select(Clone).ToList(), QueueDepth = queue.Count,
+                Settings = Clone(settings), Current = current, Queue = queue.Count == 0 ? null! : queue.Select(Clone).ToList(), QueueDepth = queue.Count,
                 Dropped = dropped, LastEvent = lastEvent == null ? null : Clone(lastEvent), UpdatedAtMS = updatedAtMS,
                 OverlayURL = "http://127.0.0.1:17891/alerts"
             };
@@ -196,7 +196,7 @@ internal sealed class AlertService
             current = new AlertPresentation
             {
                 ID = ev.ID, Type = ev.Type, Source = ev.Source, Username = ev.Username, Amount = ev.Amount, Count = ev.Count, Months = ev.Months, Tier = ev.Tier, GiftName = ev.GiftName, RewardTitle = ev.RewardTitle, UserInput = ev.UserInput, CreatedAtMS = ev.CreatedAtMS,
-                Style = Clone(st), Title = RenderTemplate(st.TitleTemplate, ev), Message = RenderTemplate(st.MessageTemplate, ev), StartedAtMS = now, EndsAtMS = now + st.EnterDurationMS + st.DurationMS + st.ExitDurationMS,
+                Style = st, Title = RenderTemplate(st.TitleTemplate, ev), Message = RenderTemplate(st.MessageTemplate, ev), StartedAtMS = now, EndsAtMS = now + st.EnterDurationMS + st.DurationMS + st.ExitDurationMS,
                 VisualURL = !string.IsNullOrWhiteSpace(st.VisualFile) ? $"/media/alerts?type={Uri.EscapeDataString(ev.Type)}&kind=visual&v={st.VisualUpdatedAt}" : "",
                 SoundURL = !string.IsNullOrWhiteSpace(st.SoundFile) ? $"/media/alerts?type={Uri.EscapeDataString(ev.Type)}&kind=sound&v={st.SoundUpdatedAt}" : ""
             }; updatedAtMS = now; return;
@@ -206,7 +206,7 @@ internal sealed class AlertService
     public static string RenderTemplate(string template, AlertEvent ev)
     {
         var plural = ev.Count == 1 ? "" : "s"; var suffix = string.IsNullOrWhiteSpace(ev.UserInput) ? "" : ": " + ev.UserInput.Trim();
-        return (template ?? "").Replace("{user}", ev.Username).Replace("{count}", ev.Count.ToString()).Replace("{plural}", plural).Replace("{amount}", ev.Amount.ToString()).Replace("{months}", ev.Months.ToString()).Replace("{tier}", ev.Tier).Replace("{gift}", ev.GiftName).Replace("{reward}", ev.RewardTitle).Replace("{input}", ev.UserInput).Replace("{input_suffix}", suffix).Trim();
+        return (template ?? "").Replace("{user}", ev.Username).Replace("{count}", ev.Count.ToString()).Replace("{plural}", plural).Replace("{amount}", ev.Amount.ToString()).Replace("{months}", ev.Months.ToString()).Replace("{tier}", ev.Tier ?? "").Replace("{gift}", ev.GiftName ?? "").Replace("{reward}", ev.RewardTitle ?? "").Replace("{input}", ev.UserInput ?? "").Replace("{input_suffix}", suffix).Trim();
     }
     private Task SaveAsync() { AlertSettings copy; lock (gate) copy = Clone(settings); return AppUtil.AtomicWriteJsonAsync(settingsPath, copy); }
     private static T Clone<T>(T v) => JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(v, AppUtil.Json), AppUtil.Json)!;
