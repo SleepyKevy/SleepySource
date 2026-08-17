@@ -13,6 +13,7 @@ internal sealed class MainForm : Form
 
     private readonly WebView2 webView;
     private readonly BackendHost backend = new();
+    private readonly Icon applicationIcon;
     private readonly NotifyIcon trayIcon;
     private readonly ContextMenuStrip trayMenu;
     private bool backendReady;
@@ -27,9 +28,8 @@ internal sealed class MainForm : Form
         BackColor = Color.FromArgb(2, 5, 10);
         KeyPreview = true;
 
-        var iconPath = Path.Combine(AppContext.BaseDirectory, "assets", "app.ico");
-        if (File.Exists(iconPath))
-            Icon = new Icon(iconPath);
+        applicationIcon = LoadApplicationIcon();
+        Icon = applicationIcon;
 
         webView = new WebView2
         {
@@ -49,7 +49,7 @@ internal sealed class MainForm : Form
         trayIcon = new NotifyIcon
         {
             Text = "SleepySource 1.0 — Made by SleepyKev • 2026",
-            Icon = Icon,
+            Icon = applicationIcon,
             ContextMenuStrip = trayMenu,
             Visible = true
         };
@@ -64,6 +64,35 @@ internal sealed class MainForm : Form
             if (WindowState == FormWindowState.Minimized)
                 ShowInTaskbar = true;
         };
+    }
+
+    private static Icon LoadApplicationIcon()
+    {
+        var iconPath = Path.Combine(AppContext.BaseDirectory, "assets", "app.ico");
+        try
+        {
+            if (File.Exists(iconPath))
+                return new Icon(iconPath);
+        }
+        catch
+        {
+        }
+
+        try
+        {
+            var executablePath = Environment.ProcessPath;
+            if (!string.IsNullOrWhiteSpace(executablePath))
+            {
+                using var embedded = Icon.ExtractAssociatedIcon(executablePath);
+                if (embedded is not null)
+                    return (Icon)embedded.Clone();
+            }
+        }
+        catch
+        {
+        }
+
+        return (Icon)SystemIcons.Application.Clone();
     }
 
     private async void OnShown(object? sender, EventArgs e)
@@ -233,6 +262,7 @@ internal sealed class MainForm : Form
             trayMenu.Dispose();
             webView.Dispose();
             backend.Dispose();
+            applicationIcon.Dispose();
         }
         base.Dispose(disposing);
     }
