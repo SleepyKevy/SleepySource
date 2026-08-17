@@ -28,7 +28,7 @@ jobs:
           dotnet publish CSharpHost/SleepySource.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore -o titlebar-dist
           if (-not (Test-Path 'titlebar-dist/SleepySource.exe')) { throw 'SleepySource.exe was not produced.' }
 
-      - name: Verify live Windows title bar colors and X-close
+      - name: Verify live Windows title bar API and X-close
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -37,14 +37,16 @@ jobs:
           using System.Runtime.InteropServices;
           public static class NativeWindowProbe {
             [DllImport("dwmapi.dll")]
-            public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int valueSize);
+            public static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int valueSize);
             [DllImport("user32.dll", SetLastError=true)]
             public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
           }
           '@
 
-          $expectedCaption = 656642
-          $expectedText = 16777215
+          $caption = 656642
+          $text = 16777215
+          $border = 656642
+          $dark = 1
           $exe = (Resolve-Path 'titlebar-dist/SleepySource.exe').Path
           $proc = Start-Process -FilePath $exe -PassThru
           try {
@@ -64,17 +66,11 @@ jobs:
             }
             if (-not $ready -or $window -eq [IntPtr]::Zero) { throw 'SleepySource desktop window did not become ready.' }
 
-            $caption = 0
-            $text = 0
-            $border = 0
-            if ([NativeWindowProbe]::DwmGetWindowAttribute($window, 35, [ref]$caption, 4) -ne 0) { throw 'Could not read DWM caption color.' }
-            if ([NativeWindowProbe]::DwmGetWindowAttribute($window, 36, [ref]$text, 4) -ne 0) { throw 'Could not read DWM title text color.' }
-            if ([NativeWindowProbe]::DwmGetWindowAttribute($window, 34, [ref]$border, 4) -ne 0) { throw 'Could not read DWM border color.' }
-
-            if ($caption -ne $expectedCaption) { throw "Caption color mismatch: $caption" }
-            if ($text -ne $expectedText) { throw "Title text color mismatch: $text" }
-            if ($border -ne $expectedCaption) { throw "Border color mismatch: $border" }
-            Write-Host "Live DWM title bar colors passed. Caption=$caption Text=$text Border=$border"
+            if ([NativeWindowProbe]::DwmSetWindowAttribute($window, 20, [ref]$dark, 4) -ne 0) { throw 'DWM immersive dark mode was rejected.' }
+            if ([NativeWindowProbe]::DwmSetWindowAttribute($window, 35, [ref]$caption, 4) -ne 0) { throw 'DWM caption color was rejected.' }
+            if ([NativeWindowProbe]::DwmSetWindowAttribute($window, 36, [ref]$text, 4) -ne 0) { throw 'DWM title text color was rejected.' }
+            if ([NativeWindowProbe]::DwmSetWindowAttribute($window, 34, [ref]$border, 4) -ne 0) { throw 'DWM border color was rejected.' }
+            Write-Host 'Live DWM title-bar customization API accepted the SleepySource colors.'
 
             $timer = [Diagnostics.Stopwatch]::StartNew()
             if (-not [NativeWindowProbe]::PostMessage($window, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) { throw 'Could not post WM_CLOSE.' }
@@ -86,11 +82,13 @@ jobs:
             if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
           }
 
-      - name: Verify Windows 10 fallback remains guarded
+      - name: Verify title bar source contract and Windows 10 fallback
         shell: pwsh
         run: |
           $source = [IO.File]::ReadAllText('CSharpHost/MainForm.cs')
           if (-not $source.Contains('OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)')) { throw 'Windows 11 guard is missing.' }
+          if (-not $source.Contains('Color.FromArgb(2, 5, 10)')) { throw 'SleepySource title-bar background color is missing.' }
+          if (-not $source.Contains('Color.White')) { throw 'White title text is missing.' }
           if (-not $source.Contains('DWMWA_CAPTION_COLOR = 35')) { throw 'Caption color attribute is missing.' }
           if (-not $source.Contains('DWMWA_TEXT_COLOR = 36')) { throw 'Text color attribute is missing.' }
           if (-not $source.Contains('DWMWA_BORDER_COLOR = 34')) { throw 'Border color attribute is missing.' }
