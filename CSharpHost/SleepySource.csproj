@@ -36,4 +36,11 @@
     <Content Include="web\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="assets\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <Target Name="EnsurePublishedAppIcon" AfterTargets="Publish">
+    <MakeDir Directories="$(PublishDir)assets" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\assets\app.ico"
+          DestinationFiles="$(PublishDir)assets\app.ico"
+          SkipUnchangedFiles="true" />
+  </Target>
 </Project>
