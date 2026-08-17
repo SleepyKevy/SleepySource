@@ -31,6 +31,17 @@ jobs:
           if (-not (Test-Path 'smoke-dist/SleepySource.exe')) { throw 'SleepySource.exe was not produced.' }
           if (Test-Path 'smoke-dist/SleepySource.Engine.exe') { throw 'Legacy Go engine is present in pure C# output.' }
           if (Get-ChildItem CSharpHost -Recurse -Filter *.go -ErrorAction SilentlyContinue) { throw 'Go source exists under CSharpHost.' }
+          if (-not (Test-Path 'smoke-dist/assets/app.ico')) { throw 'Published SleepySource app icon is missing.' }
+          if ((Get-Item 'smoke-dist/assets/app.ico').Length -lt 1000) { throw 'Published SleepySource app icon is invalid.' }
+          Add-Type -AssemblyName System.Drawing
+          $embeddedIcon = [System.Drawing.Icon]::ExtractAssociatedIcon((Resolve-Path 'smoke-dist/SleepySource.exe').Path)
+          if ($null -eq $embeddedIcon) { throw 'SleepySource.exe has no embedded application icon.' }
+          try {
+            if ($embeddedIcon.Width -lt 16 -or $embeddedIcon.Height -lt 16) { throw 'Embedded SleepySource executable icon is invalid.' }
+          }
+          finally {
+            $embeddedIcon.Dispose()
+          }
 
       - name: Start C# backend and probe local contracts
         shell: pwsh
