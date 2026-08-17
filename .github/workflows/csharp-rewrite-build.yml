@@ -26,7 +26,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $parts = Get-ChildItem '.rewrite/codepart-*' | Sort-Object Name
-          if ($parts.Count -ne 5) { throw "Expected 5 C# bundle parts, found $($parts.Count)." }
+          if ($parts.Count -ne 7) { throw "Expected 7 C# bundle parts, found $($parts.Count)." }
           $b64 = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
           $xzPath = Join-Path $env:RUNNER_TEMP 'sleepysource-csharp.tar.xz'
           [IO.File]::WriteAllBytes($xzPath, [Convert]::FromBase64String($b64))
