@@ -50,10 +50,10 @@ jobs:
           if ($fixed.Contains("window.location.assign('/designer')")) { throw 'Broken relative dashboard navigation still exists.' }
           if (-not $fixed.Contains("window.chrome.webview.postMessage('open')")) { throw 'WebView2 open message handoff is missing.' }
 
-          $host = [IO.File]::ReadAllText('CSharpHost/MainForm.cs')
-          if (-not $host.Contains('TryGetWebMessageAsString')) { throw 'C# WebView message receiver is missing.' }
-          if (-not $host.Contains('string.Equals(message, "open"')) { throw 'C# open message handler is missing.' }
-          if (-not $host.Contains('Navigate(EngineHost + "designer")')) { throw 'C# dashboard navigation target is missing.' }
+          $hostSource = [IO.File]::ReadAllText('CSharpHost/MainForm.cs')
+          if (-not $hostSource.Contains('TryGetWebMessageAsString')) { throw 'C# WebView message receiver is missing.' }
+          if (-not $hostSource.Contains('string.Equals(message, "open"')) { throw 'C# open message handler is missing.' }
+          if (-not $hostSource.Contains('Navigate(EngineHost + "designer")')) { throw 'C# dashboard navigation target is missing.' }
           git diff --check
 
       - name: Publish and verify real dashboard route
