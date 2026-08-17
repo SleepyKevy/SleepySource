@@ -1,0 +1,97 @@
+name: Validate SleepySource Title Bar Once
+
+on:
+  push:
+    branches:
+      - fix-title-bar-theme
+    paths:
+      - .github/workflows/validate-title-bar-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate-title-bar:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish desktop build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet restore CSharpHost/SleepySource.csproj -r win-x64
+          dotnet publish CSharpHost/SleepySource.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore -o titlebar-dist
+          if (-not (Test-Path 'titlebar-dist/SleepySource.exe')) { throw 'SleepySource.exe was not produced.' }
+
+      - name: Verify live Windows title bar colors and X-close
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class NativeWindowProbe {
+            [DllImport("dwmapi.dll")]
+            public static extern int DwmGetWindowAttribute(IntPtr hwnd, int attribute, out int value, int valueSize);
+            [DllImport("user32.dll", SetLastError=true)]
+            public static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+          }
+          '@
+
+          $expectedCaption = 656642
+          $expectedText = 16777215
+          $exe = (Resolve-Path 'titlebar-dist/SleepySource.exe').Path
+          $proc = Start-Process -FilePath $exe -PassThru
+          try {
+            $window = [IntPtr]::Zero
+            $ready = $false
+            for ($i = 0; $i -lt 80; $i++) {
+              if ($proc.HasExited) { throw "SleepySource exited before its window became ready. Exit code: $($proc.ExitCode)" }
+              $proc.Refresh()
+              $window = $proc.MainWindowHandle
+              if ($window -ne [IntPtr]::Zero) {
+                try {
+                  $health = Invoke-WebRequest 'http://127.0.0.1:17891/api/health' -TimeoutSec 1 -UseBasicParsing
+                  if ($health.StatusCode -eq 200 -and $health.Content.Trim() -eq 'ok') { $ready = $true; break }
+                } catch { }
+              }
+              Start-Sleep -Milliseconds 250
+            }
+            if (-not $ready -or $window -eq [IntPtr]::Zero) { throw 'SleepySource desktop window did not become ready.' }
+
+            $caption = 0
+            $text = 0
+            $border = 0
+            if ([NativeWindowProbe]::DwmGetWindowAttribute($window, 35, [ref]$caption, 4) -ne 0) { throw 'Could not read DWM caption color.' }
+            if ([NativeWindowProbe]::DwmGetWindowAttribute($window, 36, [ref]$text, 4) -ne 0) { throw 'Could not read DWM title text color.' }
+            if ([NativeWindowProbe]::DwmGetWindowAttribute($window, 34, [ref]$border, 4) -ne 0) { throw 'Could not read DWM border color.' }
+
+            if ($caption -ne $expectedCaption) { throw "Caption color mismatch: $caption" }
+            if ($text -ne $expectedText) { throw "Title text color mismatch: $text" }
+            if ($border -ne $expectedCaption) { throw "Border color mismatch: $border" }
+            Write-Host "Live DWM title bar colors passed. Caption=$caption Text=$text Border=$border"
+
+            $timer = [Diagnostics.Stopwatch]::StartNew()
+            if (-not [NativeWindowProbe]::PostMessage($window, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) { throw 'Could not post WM_CLOSE.' }
+            if (-not $proc.WaitForExit(1500)) { throw 'SleepySource was still running 1.5 seconds after X-close.' }
+            $timer.Stop()
+            Write-Host "X-close remained healthy at $($timer.ElapsedMilliseconds) ms."
+          }
+          finally {
+            if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          }
+
+      - name: Verify Windows 10 fallback remains guarded
+        shell: pwsh
+        run: |
+          $source = [IO.File]::ReadAllText('CSharpHost/MainForm.cs')
+          if (-not $source.Contains('OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)')) { throw 'Windows 11 guard is missing.' }
+          if (-not $source.Contains('DWMWA_CAPTION_COLOR = 35')) { throw 'Caption color attribute is missing.' }
+          if (-not $source.Contains('DWMWA_TEXT_COLOR = 36')) { throw 'Text color attribute is missing.' }
+          if (-not $source.Contains('DWMWA_BORDER_COLOR = 34')) { throw 'Border color attribute is missing.' }
+          Write-Host 'Windows title-bar source contract passed.'
