@@ -1,0 +1,43 @@
+name: Final SleepySource CSharp Countdown Contract Fix
+
+on:
+  push:
+    branches:
+      - csharp-rewrite-1.0
+    paths:
+      - .github/workflows/final-countdown-contract-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: csharp-rewrite-1.0
+          fetch-depth: 0
+
+      - name: Match countdown font upload response to baseline
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $path = 'CSharpHost/BackendHost.cs'
+          $text = Get-Content $path -Raw
+          $old = 'return J(new{settings=countdown.State().Settings,fonts=core.ListFonts()});'
+          $new = 'return J(countdown.State(core.ListFonts()));'
+          $count = ([regex]::Matches($text,[regex]::Escape($old))).Count
+          if ($count -ne 1) { throw "Expected exactly one countdown font-upload response, found $count." }
+          $text = $text.Replace($old,$new)
+          [IO.File]::WriteAllText((Resolve-Path $path),$text,[Text.UTF8Encoding]::new($false))
+          git diff --check
+
+      - name: Commit final contract fix
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add CSharpHost/BackendHost.cs
+          git commit -m 'Match countdown font upload contract in C# backend'
+          git push origin HEAD:csharp-rewrite-1.0
