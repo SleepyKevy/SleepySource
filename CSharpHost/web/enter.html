@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SleepySource 1.0 Beta</title>
+<title>SleepySource 1.0</title>
 <style>
 :root{
   color-scheme:dark;
@@ -274,7 +274,7 @@ body::after{
 </head>
 <body>
 <div id="particleField" class="particleField" aria-hidden="true"></div>
-<div class="buildLabel" aria-label="Build 1.0 Beta">Build 1.0 Beta</div>
+<div class="buildLabel" aria-label="Build 1.0">Build 1.0</div>
 <div class="statusLine" role="status" aria-live="polite"><span class="statusDot" aria-hidden="true"></span><span>Ready</span></div>
 <main id="splash" class="splash">
   <section class="content" aria-labelledby="appTitle">
@@ -350,11 +350,7 @@ body::after{
     opening = true;
     button.disabled = true;
     splash.classList.add('leaving');
-    window.setTimeout(() => {
-      if (window.chrome?.webview) {
-        window.chrome.webview.postMessage('open');
-      }
-    }, 180);
+    window.setTimeout(() => window.location.assign('/designer'), 180);
   }
 
   button.addEventListener('click', openSleepySource);

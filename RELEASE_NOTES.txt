@@ -1,25 +1,37 @@
-SLEEPYSOURCE™ 1.0 BETA — RELEASE NOTES
-========================================
+SLEEPYSOURCE™ 1.0 — RELEASE NOTES
+=================================
 Made by SleepyKev • 2026
 
-Branding update
----------------
-- Added the ™ mark to the visible SleepySource brand wordmark.
-- Added SleepySource™ branding to the splash screen.
-- Added SleepySource™ branding to About / Help.
-- Added the trademark treatment to README and release notes.
-- Installer and application metadata are intentionally unchanged for now.
+SleepySource 1.0 is the revamped pure C#/.NET release line.
 
-Desktop navigation update
--------------------------
-- Mouse Back and Forward side buttons are blocked inside the C# desktop host so SleepySource does not navigate like a normal web browser.
+CORE REVAMP
+-----------
+- Replaced the transitional Go compatibility backend with in-process C#/.NET 8 services.
+- Removed the SleepySource.Engine.exe runtime dependency.
+- Preserved the existing WebView2 interface and OBS Browser Source workflow.
+- Preserved the local service address at 127.0.0.1:17891.
+- Preserved the SleepySource_Data portable data location and existing route structure.
+- Final visible product/version branding is SleepySource 1.0.
 
-Mouse navigation fix
-- Blocks both XBUTTON mouse events and Windows browser Back/Forward app commands before WebView2 can navigate.
+C# SERVICES
+-----------
+SleepySource now handles the local HTTP/OBS server, settings/state, profiles/backups, Alert Studio, chat, Countdown Pro, Kick integration, stream authentication/settings, Cloudflare relay control, Windows media sessions, health checks and update handling directly in C#.
 
-- Back/Forward browser history navigation is now blocked inside WebView2 itself, and dashboard history is cleared after startup so mouse browser buttons cannot move between app pages.
-Desktop behavior update:
-- Minimizing SleepySource now keeps its taskbar button visible.
-- The system tray icon remains active at the same time while SleepySource is running.
-- Closing with the window X now exits SleepySource completely, including the tray icon and compatibility engine.
+COMPATIBILITY FIXES FOUND DURING MIGRATION
+------------------------------------------
+- Matched legacy API response wrappers and optional/default fields.
+- Fixed alert consumption when an alert has no custom visual or sound media.
+- Fixed backup restore when managed media/profile folders are empty or absent.
+- Preserved countdown font-upload response behavior.
 
+WINDOWS VALIDATION
+------------------
+- .NET 8 win-x64 restore/publish: PASS
+- Self-contained single-file SleepySource.exe: PASS
+- Legacy SleepySource.Engine.exe absent: PASS
+- 71/71 HTTP route surface parity: PASS
+- Default JSON contract parity: PASS
+- Mutation + backup restore + restart persistence parity: PASS
+- Pure C# Windows runtime/API smoke suite: PASS
+
+Windows x64 only. The application remains unsigned, so Windows SmartScreen may warn on first launch.
