@@ -6,28 +6,32 @@ SleepySource 1.0 is the revamped pure C#/.NET release line.
 
 CORE REVAMP
 -----------
-- Replaced the temporary Go compatibility backend with in-process C#/.NET services.
+- Replaced the transitional Go compatibility backend with in-process C#/.NET 8 services.
 - Removed the SleepySource.Engine.exe runtime dependency.
 - Preserved the existing WebView2 interface and OBS Browser Source workflow.
 - Preserved the local service address at 127.0.0.1:17891.
 - Preserved the SleepySource_Data portable data location and existing route structure.
+- Final visible product/version branding is SleepySource 1.0.
 
 C# SERVICES
 -----------
 SleepySource now handles the local HTTP/OBS server, settings/state, profiles/backups, Alert Studio, chat, Countdown Pro, Kick integration, stream authentication/settings, Cloudflare relay control, Windows media sessions, health checks and update handling directly in C#.
 
-DESKTOP BEHAVIOR
-----------------
-- Windows desktop host remains WinForms + WebView2.
-- Mouse Back/Forward navigation remains blocked inside SleepySource.
-- Minimizing keeps the taskbar button visible while the tray icon remains available.
-- Closing with the window X exits SleepySource completely.
+COMPATIBILITY FIXES FOUND DURING MIGRATION
+------------------------------------------
+- Matched legacy API response wrappers and optional/default fields.
+- Fixed alert consumption when an alert has no custom visual or sound media.
+- Fixed backup restore when managed media/profile folders are empty or absent.
+- Preserved countdown font-upload response behavior.
 
-VALIDATION
-----------
+WINDOWS VALIDATION
+------------------
 - .NET 8 win-x64 restore/publish: PASS
 - Self-contained single-file SleepySource.exe: PASS
-- Legacy SleepySource.Engine.exe absent from published output: PASS
+- Legacy SleepySource.Engine.exe absent: PASS
+- 71/71 HTTP route surface parity: PASS
+- Default JSON contract parity: PASS
+- Mutation + backup restore + restart persistence parity: PASS
 - Pure C# Windows runtime/API smoke suite: PASS
 
 Windows x64 only. The application remains unsigned, so Windows SmartScreen may warn on first launch.

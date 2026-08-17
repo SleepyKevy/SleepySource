@@ -1,62 +1,62 @@
-SLEEPYSOURCE 1.0 BETA — VALIDATION
-=================================
+SLEEPYSOURCE™ 1.0 — VALIDATION
+==============================
+Made by SleepyKev • 2026
 
-C# host build
+ARCHITECTURE
+------------
+[PASS] SleepySource 1.0 is a pure C#/.NET 8 application.
+[PASS] WinForms + Microsoft WebView2 desktop host.
+[PASS] Local HTTP/OBS server runs in-process in C#.
+[PASS] No CompatibilityEngine source directory in the release tree.
+[PASS] No .go source files or go.mod in the release tree.
+[PASS] No SleepySource.Engine.exe dependency in the published output.
+
+WINDOWS BUILD
 -------------
-GitHub Actions Windows build: SUCCESS
-Workflow: Build SleepySource 1.0 Beta CSharp Host
-Target: .NET 8 / WinForms / WebView2 / win-x64 / self-contained / single-file
-SleepySource.exe SHA-256: 47758fdc7228dadedd24ffcf0cda5b108466a7e1dd6a5771e369d7d2885644dd
-PE type: x86-64 Windows GUI
+[PASS] Windows x64 restore and publish on GitHub Actions.
+[PASS] Self-contained single-file SleepySource.exe produced.
+[PASS] Published build contains the existing web UI and assets.
+[PASS] Permanent smoke gate rejects any reintroduced SleepySource.Engine.exe.
 
-Compatibility engine
---------------------
-Baseline: SleepySource 1.3.2
-Mode: headless --engine-only
-Go test ./...: PASS
-Windows cross-compile: PASS
-SleepySource.Engine.exe SHA-256: 1368e014d167e151b7ec0da2d402f40b943966a86b870b55119cd834c16c550e
-PE type: x86-64 Windows GUI
+GO-TO-C# CONTRACT VALIDATION
+----------------------------
+A frozen pre-removal Go migration baseline was used only as a validation reference.
+[PASS] Existing UI/assets were preserved, with the intentional visible version-label update from 1.0 Beta to 1.0.
+[PASS] HTTP route surface matches: 71 Go routes / 71 C# routes.
+[PASS] Frozen Go reference tests and Windows reference build succeeded.
+[PASS] Pure C# backend build succeeded.
+[PASS] Captured default JSON API contract shapes match.
+[PASS] Countdown state/settings/profile response wrappers match.
+[PASS] Alert queue/default media omission behavior matches.
+[PASS] Chat optional/default response fields match.
+[PASS] Cloudflare optional/default status fields match.
+[PASS] Countdown font-upload response matches the baseline.
 
-Current beta regression checks
-------------------------------
-Copy URL / Copy Source clipboard fallback: PASS
-Chat Overlay dedicated Copy URL button wiring: PASS
-OBS Chat stable-message rendering: PASS
-Existing messages are preserved across message updates: PASS
-Only newly received chat messages use the configured entrance animation: PASS
-JavaScript syntax check (Designer): PASS
-JavaScript syntax check (Chat): PASS
+MUTATION + PERSISTENCE PARITY
+-----------------------------
+The same mutation scenario was run against the frozen Go reference and the C# rewrite.
+[PASS] Main settings save and restart persistence.
+[PASS] Chat settings, test messages and clear behavior.
+[PASS] Countdown settings, profiles, start/pause/reset and persistence.
+[PASS] Alert settings, queue, overlay consumption, clear and persistence.
+[PASS] Workspace profile save/duplicate/rename/default/delete behavior.
+[PASS] Backup ZIP export, settings mutation, backup import and restored state.
+[PASS] Credential-free expected error/status behavior.
+[PASS] Normalized persisted results match after process restart.
 
-Headless API smoke checks
+PURE C# RUNTIME/API SMOKE
 -------------------------
-/api/health: PASS (ok)
-/designer: PASS (HTTP 200, clipboard fallback served)
-/chat: PASS (HTTP 200, stable-message renderer served)
+The permanent smoke test launches the real Windows SleepySource.exe and probes 127.0.0.1:17891.
+[PASS] /api/health
+[PASS] /, /designer, /chat, /overlay, /countdown, /alerts
+[PASS] Core settings/state JSON routes
+[PASS] Chat test message round-trip
+[PASS] Alert test queue
+[PASS] Countdown control
+[PASS] Backup ZIP export
+[PASS] SleepySource_Data creation beside the executable
+[PASS] No SleepySource.Engine.exe in the tested publish
 
-Transferred asset integrity
----------------------------
-assets/default.png SHA-256: ec26f26b9661ee994baa03b6608e31d6794ffec517cbc220a80a0f955c158bce
-assets/app.ico SHA-256: f516c3e553e680bb73226364da09f0a356d5f749a5df552b85c8b933af5a5e60
-Splash branding: SleepySource 1.0 Beta
-Dashboard branding/state: SleepySource 1.0 Beta
-
-Isolation
----------
-No beta changes were merged into the normal SleepySource main branch.
-The beta creates SleepySource_Data beside the beta executables.
-The beta cannot run at the same time as the normal SleepySource build because both intentionally preserve the OBS/API address 127.0.0.1:17891.
-
-Trademark + mouse navigation update
------------------------------------
-[PASS] Top-left visible wordmark uses SleepySource™.
-[PASS] Splash screen uses SleepySource™.
-[PASS] About / Help uses SleepySource™ 1.0 Beta.
-[PASS] README and RELEASE_NOTES.txt include the visible trademark treatment.
-[PASS] Installer/application metadata intentionally remains unchanged.
-[PASS] C# host blocks WM_XBUTTONDOWN / WM_XBUTTONUP / WM_XBUTTONDBLCLK so mouse Back/Forward side buttons do not navigate WebView2 history.
-[PASS] C# Windows x64 host rebuilt successfully with GitHub Actions.
-[PASS] Compatibility engine Go tests pass.
-C# host mouse navigation: XBUTTON + WM_APPCOMMAND browser back/forward blocked; GitHub Actions win-x64 build succeeded.
-
-[PASS] C# host blocks CoreWebView2NavigationKind.BackOrForward and clears dashboard navigation history.
+EXTERNAL SERVICE NOTE
+---------------------
+Live Kick OAuth/webhook delivery and a live Cloudflare Quick Tunnel require real account credentials/network access and are not exercised by credential-free CI. Their C# route surface, state contracts and integration/process code are included in the rewrite and covered by build/static compatibility checks.
