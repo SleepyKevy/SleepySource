@@ -1,0 +1,50 @@
+name: Validate SleepySource App Icons Once
+
+on:
+  push:
+    branches:
+      - fix-app-icons
+    paths:
+      - .github/workflows/validate-app-icons-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate-icons:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish and validate application icons
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet restore CSharpHost/SleepySource.csproj -r win-x64
+          dotnet publish CSharpHost/SleepySource.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore -o icon-test-dist
+
+          $exe = (Resolve-Path 'icon-test-dist/SleepySource.exe').Path
+          $ico = (Resolve-Path 'icon-test-dist/assets/app.ico').Path
+          if ((Get-Item $ico).Length -lt 1000) { throw 'Published app.ico is missing or invalid.' }
+
+          Add-Type -AssemblyName System.Drawing
+          $embeddedIcon = [System.Drawing.Icon]::ExtractAssociatedIcon($exe)
+          if ($null -eq $embeddedIcon) { throw 'SleepySource.exe has no embedded application icon.' }
+          try {
+            if ($embeddedIcon.Width -lt 16 -or $embeddedIcon.Height -lt 16) { throw 'Embedded executable icon is invalid.' }
+          }
+          finally {
+            $embeddedIcon.Dispose()
+          }
+
+          $mainFormSource = [IO.File]::ReadAllText('CSharpHost/MainForm.cs')
+          if (-not $mainFormSource.Contains('applicationIcon = LoadApplicationIcon();')) { throw 'Main form does not load the shared application icon.' }
+          if (-not $mainFormSource.Contains('Icon = applicationIcon;')) { throw 'Window/taskbar icon binding is missing.' }
+          if (-not $mainFormSource.Contains('Icon = applicationIcon,')) { throw 'Tray icon binding is missing.' }
+          if (-not $mainFormSource.Contains('Icon.ExtractAssociatedIcon(executablePath)')) { throw 'Embedded EXE icon fallback is missing.' }
+
+          Write-Host 'Window, taskbar, tray and published icon checks passed.'
