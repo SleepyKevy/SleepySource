@@ -29,7 +29,7 @@ jobs:
           if (-not (Test-Path 'exit-test-dist/SleepySource.exe')) { throw 'SleepySource.exe was not produced.' }
           if (-not (Test-Path 'exit-test-dist/assets/app.ico')) { throw 'Published app icon is missing.' }
 
-      - name: Launch desktop app and close it with WM_CLOSE
+      - name: Launch ready desktop app and close it with WM_CLOSE
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -46,14 +46,21 @@ jobs:
           $proc = Start-Process -FilePath $exe -PassThru
           try {
             $window = [IntPtr]::Zero
-            for ($i = 0; $i -lt 60; $i++) {
-              if ($proc.HasExited) { throw "SleepySource exited before its desktop window appeared. Exit code: $($proc.ExitCode)" }
+            for ($i = 0; $i -lt 80; $i++) {
+              if ($proc.HasExited) { throw "SleepySource exited before its desktop window became ready. Exit code: $($proc.ExitCode)" }
               $proc.Refresh()
               $window = $proc.MainWindowHandle
-              if ($window -ne [IntPtr]::Zero) { break }
+              if ($window -ne [IntPtr]::Zero) {
+                try {
+                  $health = Invoke-WebRequest 'http://127.0.0.1:17891/api/health' -TimeoutSec 1 -UseBasicParsing
+                  if ($health.StatusCode -eq 200 -and $health.Content.Trim() -eq 'ok') { break }
+                } catch { }
+              }
               Start-Sleep -Milliseconds 250
             }
             if ($window -eq [IntPtr]::Zero) { throw 'SleepySource desktop window did not appear.' }
+            $health = Invoke-WebRequest 'http://127.0.0.1:17891/api/health' -TimeoutSec 2 -UseBasicParsing
+            if ($health.StatusCode -ne 200 -or $health.Content.Trim() -ne 'ok') { throw 'SleepySource backend was not ready before close timing.' }
 
             $timer = [Diagnostics.Stopwatch]::StartNew()
             if (-not [NativeClose]::PostMessage($window, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) {
@@ -65,7 +72,7 @@ jobs:
             }
             $timer.Stop()
             if ($timer.ElapsedMilliseconds -gt 1500) { throw "SleepySource X-close took $($timer.ElapsedMilliseconds) ms." }
-            Write-Host "SleepySource desktop process exited in $($timer.ElapsedMilliseconds) ms after WM_CLOSE with exit code $($proc.ExitCode)."
+            Write-Host "Ready SleepySource desktop process exited in $($timer.ElapsedMilliseconds) ms after WM_CLOSE with exit code $($proc.ExitCode)."
           }
           finally {
             if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
