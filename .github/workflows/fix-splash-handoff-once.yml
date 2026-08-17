@@ -29,17 +29,18 @@ jobs:
           $path = 'CSharpHost/web/enter.html'
           $text = [IO.File]::ReadAllText($path)
           $old = "    window.setTimeout(() => window.location.assign('/designer'), 180);"
-          $new = @"
-    window.setTimeout(() => {
-      try {
-        if (window.chrome && window.chrome.webview) {
-          window.chrome.webview.postMessage('open');
-          return;
-        }
-      } catch {}
-      window.location.assign('http://127.0.0.1:17891/designer');
-    }, 180);
-"@.TrimEnd()
+          $lines = @(
+            '    window.setTimeout(() => {'
+            '      try {'
+            '        if (window.chrome && window.chrome.webview) {'
+            "          window.chrome.webview.postMessage('open');"
+            '          return;'
+            '        }'
+            '      } catch {}'
+            "      window.location.assign('http://127.0.0.1:17891/designer');"
+            '    }, 180);'
+          )
+          $new = $lines -join "`r`n"
           if (-not $text.Contains($old)) { throw 'Expected broken relative /designer handoff was not found.' }
           $text = $text.Replace($old, $new)
           $utf8 = New-Object System.Text.UTF8Encoding($false)
@@ -53,7 +54,6 @@ jobs:
           if (-not $host.Contains('TryGetWebMessageAsString')) { throw 'C# WebView message receiver is missing.' }
           if (-not $host.Contains('string.Equals(message, "open"')) { throw 'C# open message handler is missing.' }
           if (-not $host.Contains('Navigate(EngineHost + "designer")')) { throw 'C# dashboard navigation target is missing.' }
-
           git diff --check
 
       - name: Publish and verify real dashboard route
