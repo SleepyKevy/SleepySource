@@ -1,3 +1,5 @@
+[See the changelog](https://github.com/SleepyKevy/SleepySource-2.0/blob/main/RELEASE_NOTES.txt)
+
 SLEEPYSOURCE™ 1.0
 =================
 Made by SleepyKev • 2026
