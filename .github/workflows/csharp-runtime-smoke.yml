@@ -115,7 +115,7 @@ jobs:
             if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
           }
 
-      - name: Verify desktop X-close and tray contract
+      - name: Verify desktop X-close, tray, and title bar contract
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -134,6 +134,12 @@ jobs:
           if (-not $source.Contains('private const int WM_CLOSE = 0x0010')) { throw 'WM_CLOSE interception is missing.' }
           if (-not $source.Contains('GracefulExitBudgetMs = 500')) { throw '500 ms exit watchdog is missing.' }
           if (-not $source.Contains('Kill(entireProcessTree: true)')) { throw 'Process-tree termination fallback is missing.' }
+          if (-not $source.Contains('OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)')) { throw 'Windows 11 title-bar guard is missing.' }
+          if (-not $source.Contains('DWMWA_CAPTION_COLOR = 35')) { throw 'Native title-bar caption color is missing.' }
+          if (-not $source.Contains('DWMWA_TEXT_COLOR = 36')) { throw 'Native title-bar text color is missing.' }
+          if (-not $source.Contains('DWMWA_BORDER_COLOR = 34')) { throw 'Native title-bar border color is missing.' }
+          if (-not $source.Contains('Color.FromArgb(2, 5, 10)')) { throw 'SleepySource dark title-bar color is missing.' }
+          if (-not $source.Contains('Color.White')) { throw 'White title-bar text is missing.' }
 
           $proc = Start-Process -FilePath (Resolve-Path 'smoke-dist/SleepySource.exe') -PassThru
           try {
@@ -157,7 +163,7 @@ jobs:
             if (-not [NativeClose]::PostMessage($window, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)) { throw 'Could not post WM_CLOSE to SleepySource.' }
             if (-not $proc.WaitForExit(1500)) { throw 'SleepySource.exe was still running 1.5 seconds after X-close.' }
             $timer.Stop()
-            Write-Host "SleepySource X-close passed in $($timer.ElapsedMilliseconds) ms."
+            Write-Host "SleepySource X-close passed in $($timer.ElapsedMilliseconds) ms; tray/title-bar source contracts are present."
           }
           finally {
             if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
