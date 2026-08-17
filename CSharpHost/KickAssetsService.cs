@@ -17,7 +17,7 @@ internal sealed class KickAssetsService : IDisposable
     {
         this.chat=chat;this.kick=kick;
         http=new HttpClient(new HttpClientHandler{AllowAutoRedirect=false}){Timeout=TimeSpan.FromSeconds(8)};
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("SleepySource/1.0");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("SleepySource/1.1");
     }
 
     public async Task<object> SevenTVAsync(string? setId,string? kickChannel,CancellationToken ct)
