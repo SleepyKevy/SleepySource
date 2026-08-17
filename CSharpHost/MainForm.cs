@@ -11,14 +11,13 @@ internal sealed class MainForm : Form
     private const string LocalHost = "https://sleepysource.local/";
     private const string EngineHost = "http://127.0.0.1:17891/";
     private const int WM_CLOSE = 0x0010;
-    private static readonly TimeSpan GracefulExitBudget = TimeSpan.FromMilliseconds(1250);
+    private const int GracefulExitBudgetMs = 500;
 
     private readonly WebView2 webView;
     private readonly BackendHost backend = new();
     private readonly Icon applicationIcon;
     private readonly NotifyIcon trayIcon;
     private readonly ContextMenuStrip trayMenu;
-    private System.Threading.Timer? exitWatchdog;
     private bool backendReady;
     private bool dashboardOpen;
     private bool shutdownStarted;
@@ -278,14 +277,18 @@ internal sealed class MainForm : Form
         shutdownStarted = true;
         backendReady = false;
 
-        // Arm the independent watchdog FIRST. It does not depend on the WinForms UI
-        // thread, WebView2, Kestrel, or COM cleanup. If any of those stall, kill the
-        // complete SleepySource process tree after the brief graceful-shutdown budget.
-        exitWatchdog = new System.Threading.Timer(
-            static _ => ForceProcessExit(),
-            null,
-            GracefulExitBudget,
-            Timeout.InfiniteTimeSpan);
+        // Dedicated watchdog thread: unlike a ThreadPool timer, this cannot be delayed
+        // by busy backend cleanup. X-close is therefore bounded to roughly 500 ms.
+        var watchdog = new Thread(() =>
+        {
+            Thread.Sleep(GracefulExitBudgetMs);
+            ForceProcessExit();
+        })
+        {
+            IsBackground = true,
+            Name = "SleepySource Exit Watchdog"
+        };
+        watchdog.Start();
 
         // Remove visible UI immediately. No WebView2 disposal is performed on this
         // path because native WebView shutdown can stall the desktop thread.
@@ -318,7 +321,6 @@ internal sealed class MainForm : Form
     {
         if (disposing)
         {
-            exitWatchdog?.Dispose();
             trayIcon.Visible = false;
             trayIcon.Dispose();
             trayMenu.Dispose();
