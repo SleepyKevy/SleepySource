@@ -398,9 +398,9 @@ internal sealed class AlertStyle
     public int Radius { get; set; } = 24;
     public int BorderWidth { get; set; } = 2;
     public bool Shadow { get; set; } = true;
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public string VisualFile { get; set; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public string VisualFile { get; set; } = null!;
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public long VisualUpdatedAt { get; set; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public string SoundFile { get; set; } = "";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public string SoundFile { get; set; } = null!;
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public long SoundUpdatedAt { get; set; }
     public int SoundVolume { get; set; } = 75;
     public int SoundDelayMS { get; set; }

@@ -45,7 +45,7 @@ internal sealed class CountdownService
                 Paused = paused, Finished = finished, HasStarted = hasStarted,
                 DisplayText = DisplayText(settings, current, finished), ServerNowMS = new DateTimeOffset(now).ToUnixTimeMilliseconds(),
                 UpdatedAtMS = updatedAtMS, OverlayURL = "http://127.0.0.1:17891/countdown",
-                Fonts = fonts, Profiles = ListProfiles()
+                Fonts = fonts is { Count: > 0 } ? fonts : null, Profiles = ListProfiles() is { Count: > 0 } profiles ? profiles : null
             };
         }
     }

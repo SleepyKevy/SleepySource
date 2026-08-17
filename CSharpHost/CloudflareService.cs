@@ -16,7 +16,7 @@ internal sealed class CloudflareService : IDisposable
     private Process? process; private bool running; private long startedAt; private string lastError="",publicURL="",runtime="";
 
     public CloudflareService(){var p=RuntimePath();if(ValidRuntime(p))runtime=p;}
-    public object State(){lock(gate){var ready=File.Exists(runtime)&&new FileInfo(runtime).Length is >0 and <=MaxBytes;return new{running,started_at=startedAt,last_error=lastError,public_url=publicURL,webhook_url=publicURL.Length>0?publicURL.TrimEnd('/')+"/api/chat/kick-webhook":"",binary=runtime,integrated=true,runtime_ready=ready,runtime_version=Version,mode="quick",needs_kick_setup=true};}}
+    public object State(){lock(gate){var ready=File.Exists(runtime)&&new FileInfo(runtime).Length is >0 and <=MaxBytes;return ResponsePayloads.Cloudflare(running,startedAt,lastError,publicURL,runtime,ready,Version);}}
     public string PublicURL{get{lock(gate)return publicURL;}}
     public string WebhookURL{get{lock(gate)return publicURL.Length>0?publicURL.TrimEnd('/')+"/api/chat/kick-webhook":"";}}
     public (bool Running,string PublicURL,string LastError,bool RuntimeReady,string RuntimeVersion) HealthSnapshot(){lock(gate){var ready=File.Exists(runtime)&&new FileInfo(runtime).Length is >0 and <=MaxBytes;return(running,publicURL,lastError,ready,Version);}}
