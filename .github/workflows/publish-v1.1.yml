@@ -1,0 +1,208 @@
+name: Publish SleepySource 1.1 Official
+
+on:
+  push:
+    branches:
+      - agent/publish-v1.1
+    paths:
+      - .github/workflows/publish-v1.1.yml
+
+permissions:
+  contents: write
+
+jobs:
+  publish-release:
+    runs-on: windows-latest
+    env:
+      RELEASE_SHA: 0133d7ec24ccbab0e94e83c981d1d660db2c7ddb
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout exact tested 1.1 commit
+        uses: actions/checkout@v4
+        with:
+          ref: 0133d7ec24ccbab0e94e83c981d1d660db2c7ddb
+          fetch-depth: 1
+
+      - name: Use .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build exact release executable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet restore CSharpHost/SleepySource.csproj -r win-x64
+          dotnet publish CSharpHost/SleepySource.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore -o release-dist
+          if (-not (Test-Path 'release-dist/SleepySource.exe')) { throw 'SleepySource.exe was not produced.' }
+          if (Test-Path 'release-dist/SleepySource.Engine.exe') { throw 'Legacy SleepySource.Engine.exe was produced.' }
+
+      - name: Build official Public and Source ZIPs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pubParent = Join-Path $env:RUNNER_TEMP 'pub-stage'
+          $srcParent = Join-Path $env:RUNNER_TEMP 'src-stage'
+          $pubRoot = Join-Path $pubParent 'SleepySource 1.1 Official'
+          $srcRoot = Join-Path $srcParent 'SleepySource 1.1 Official Source'
+          New-Item -ItemType Directory -Force -Path $pubRoot,$srcRoot | Out-Null
+
+          Copy-Item 'release-dist/SleepySource.exe' $pubRoot
+          Copy-Item 'README.txt','RELEASE_NOTES.txt' $pubRoot
+          Copy-Item 'CSharpHost/assets' $pubRoot -Recurse
+          Copy-Item 'CSharpHost/web' $pubRoot -Recurse
+
+          Copy-Item '.github' $srcRoot -Recurse
+          Copy-Item '.gitignore','README.txt','RELEASE_NOTES.txt' $srcRoot
+          Copy-Item 'CSharpHost' $srcRoot -Recurse
+
+          $pubZip = Join-Path $env:RUNNER_TEMP 'SleepySource_1.1_Official_Public.zip'
+          $srcZip = Join-Path $env:RUNNER_TEMP 'SleepySource_1.1_Official_Source.zip'
+          Compress-Archive -Path $pubRoot -DestinationPath $pubZip -CompressionLevel Optimal -Force
+          Compress-Archive -Path $srcRoot -DestinationPath $srcZip -CompressionLevel Optimal -Force
+
+          "PUBLIC_ZIP=$pubZip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "SOURCE_ZIP=$srcZip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Triple-check release packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $check = Join-Path $env:RUNNER_TEMP 'release-check'
+          $pubOut = Join-Path $check 'public'
+          $srcOut = Join-Path $check 'source'
+          Expand-Archive -Path $env:PUBLIC_ZIP -DestinationPath $pubOut -Force
+          Expand-Archive -Path $env:SOURCE_ZIP -DestinationPath $srcOut -Force
+          $pub = Join-Path $pubOut 'SleepySource 1.1 Official'
+          $src = Join-Path $srcOut 'SleepySource 1.1 Official Source'
+
+          foreach ($required in @(
+            (Join-Path $pub 'SleepySource.exe'),
+            (Join-Path $pub 'README.txt'),
+            (Join-Path $pub 'RELEASE_NOTES.txt'),
+            (Join-Path $pub 'assets'),
+            (Join-Path $pub 'web'),
+            (Join-Path $src '.github/workflows/csharp-runtime-smoke.yml'),
+            (Join-Path $src 'CSharpHost/SleepySource.csproj')
+          )) { if (-not (Test-Path $required)) { throw "Missing release file: $required" } }
+
+          if (Get-ChildItem $pub -Recurse -Force | Where-Object { $_.Name -in @('SleepySource_Data','SleepySource.Engine.exe') -or $_.Extension -in @('.pdb','.go') }) {
+            throw 'Public package contains generated data, legacy engine, debug symbols, or Go files.'
+          }
+          if (Get-ChildItem $src -Recurse -Force -Filter '*.go' -ErrorAction SilentlyContinue) { throw 'Source package contains Go files.' }
+          if (Test-Path (Join-Path $src '.github/workflows/publish-v1.1.yml')) { throw 'Temporary release workflow leaked into Source ZIP.' }
+
+          function Assert-TreeMatch([string]$a,[string]$b) {
+            $filesA = Get-ChildItem $a -Recurse -File | ForEach-Object { $_.FullName.Substring($a.Length).TrimStart('\','/') } | Sort-Object
+            $filesB = Get-ChildItem $b -Recurse -File | ForEach-Object { $_.FullName.Substring($b.Length).TrimStart('\','/') } | Sort-Object
+            if (Compare-Object $filesA $filesB) { throw "Tree file lists differ: $a vs $b" }
+            foreach ($rel in $filesA) {
+              $ha=(Get-FileHash (Join-Path $a $rel) -Algorithm SHA256).Hash
+              $hb=(Get-FileHash (Join-Path $b $rel) -Algorithm SHA256).Hash
+              if ($ha -ne $hb) { throw "Tree content mismatch: $rel" }
+            }
+          }
+          Assert-TreeMatch (Join-Path $pub 'assets') (Join-Path $src 'CSharpHost/assets')
+          Assert-TreeMatch (Join-Path $pub 'web') (Join-Path $src 'CSharpHost/web')
+
+          $textFiles = Get-ChildItem $pub,$src -Recurse -File | Where-Object { $_.Extension -in @('.txt','.cs','.html','.yml','.yaml','.json','.svg','.csproj') }
+          $stale = $textFiles | Select-String -Pattern 'SleepySource 1\.0|SleepySource/1\.0|Build 1\.0' -ErrorAction SilentlyContinue
+          if ($stale) { throw "Stale 1.0 branding found: $($stale.Path):$($stale.LineNumber)" }
+
+          $vi = [System.Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $pub 'SleepySource.exe'))
+          if (-not $vi.FileVersion.StartsWith('1.1') -or -not $vi.ProductVersion.StartsWith('1.1')) { throw "Unexpected EXE version: file=$($vi.FileVersion) product=$($vi.ProductVersion)" }
+
+          $pubHash=(Get-FileHash $env:PUBLIC_ZIP -Algorithm SHA256).Hash.ToLowerInvariant()
+          $srcHash=(Get-FileHash $env:SOURCE_ZIP -Algorithm SHA256).Hash.ToLowerInvariant()
+          "PUBLIC_SHA=$pubHash" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "SOURCE_SHA=$srcHash" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "Public SHA-256: $pubHash" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+          "Source SHA-256: $srcHash" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Create draft v1.1 release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $headers = @{
+            Authorization = "Bearer $env:GITHUB_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+            'User-Agent' = 'SleepySource-Release'
+          }
+          $repo=$env:GITHUB_REPOSITORY
+          try {
+            $existing=Invoke-RestMethod -Method Get -Uri "https://api.github.com/repos/$repo/releases/tags/v1.1" -Headers $headers
+            if ($existing) { throw "v1.1 already exists as release id $($existing.id)." }
+          } catch {
+            if ($_.Exception.Response.StatusCode.value__ -ne 404) { throw }
+          }
+          $notes=Get-Content 'RELEASE_NOTES.txt' -Raw
+          $payload=@{
+            tag_name='v1.1'
+            target_commitish=$env:RELEASE_SHA
+            name='SleepySource 1.1 Official'
+            body=$notes
+            draft=$true
+            prerelease=$false
+          } | ConvertTo-Json -Depth 4
+          $release=Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$repo/releases" -Headers $headers -ContentType 'application/json' -Body $payload
+          "RELEASE_ID=$($release.id)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Upload official release assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $headers = @{
+            Authorization = "Bearer $env:GITHUB_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+            'User-Agent' = 'SleepySource-Release'
+          }
+          $repo=$env:GITHUB_REPOSITORY
+          foreach ($file in @($env:PUBLIC_ZIP,$env:SOURCE_ZIP)) {
+            $name=[IO.Path]::GetFileName($file)
+            $encoded=[Uri]::EscapeDataString($name)
+            $uri="https://uploads.github.com/repos/$repo/releases/$env:RELEASE_ID/assets?name=$encoded"
+            $asset=Invoke-RestMethod -Method Post -Uri $uri -Headers $headers -ContentType 'application/zip' -InFile $file
+            if ($asset.state -ne 'uploaded' -or $asset.size -le 0) { throw "Release asset upload failed: $name" }
+          }
+
+      - name: Verify assets and publish release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $headers = @{
+            Authorization = "Bearer $env:GITHUB_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+            'User-Agent' = 'SleepySource-Release'
+          }
+          $repo=$env:GITHUB_REPOSITORY
+          $release=Invoke-RestMethod -Method Get -Uri "https://api.github.com/repos/$repo/releases/$env:RELEASE_ID" -Headers $headers
+          if (-not $release.draft -or $release.tag_name -ne 'v1.1' -or $release.target_commitish -ne $env:RELEASE_SHA) { throw 'Draft release metadata verification failed.' }
+          $expected=@('SleepySource_1.1_Official_Public.zip','SleepySource_1.1_Official_Source.zip')
+          if ($release.assets.Count -ne 2) { throw "Expected exactly 2 assets, found $($release.assets.Count)." }
+          foreach ($name in $expected) {
+            $asset=$release.assets | Where-Object { $_.name -eq $name }
+            if (-not $asset -or $asset.state -ne 'uploaded' -or $asset.size -le 0) { throw "Missing or invalid asset: $name" }
+            $expectedDigest = if ($name -like '*Public*') { "sha256:$env:PUBLIC_SHA" } else { "sha256:$env:SOURCE_SHA" }
+            if ($asset.digest -and $asset.digest -ne $expectedDigest) { throw "Digest mismatch for $name" }
+          }
+          $publish=@{ draft=$false; prerelease=$false; make_latest='true' } | ConvertTo-Json
+          $final=Invoke-RestMethod -Method Patch -Uri "https://api.github.com/repos/$repo/releases/$env:RELEASE_ID" -Headers $headers -ContentType 'application/json' -Body $publish
+          if ($final.draft -or $final.tag_name -ne 'v1.1') { throw 'Release did not publish correctly.' }
+          "Published: $($final.html_url)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Remove temporary publishing branch
+        if: success()
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $headers = @{
+            Authorization = "Bearer $env:GITHUB_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+            'User-Agent' = 'SleepySource-Release'
+          }
+          $repo=$env:GITHUB_REPOSITORY
+          Invoke-RestMethod -Method Delete -Uri "https://api.github.com/repos/$repo/git/refs/heads/agent/publish-v1.1" -Headers $headers
