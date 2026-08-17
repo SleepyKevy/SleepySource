@@ -41,7 +41,7 @@ jobs:
           if (-not (Test-Path (Join-Path $srcRoot '.github/workflows/csharp-runtime-smoke.yml'))) { throw 'Runtime smoke workflow missing from source package.' }
 
           $count=(Get-ChildItem $srcRoot -Recurse -File -Force | Measure-Object).Count
-          if ($count -ne 47) { throw "Expected 47 source files, found $count." }
+          if ($count -ne 46) { throw "Expected 46 source files, found $count." }
 
           $srcZip = Join-Path $env:RUNNER_TEMP 'SleepySource_1.1_Official_Source.zip'
           Compress-Archive -Path $srcRoot -DestinationPath $srcZip -CompressionLevel Optimal -Force
