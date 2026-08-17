@@ -25,9 +25,32 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $parts = Get-ChildItem '.rewrite/codepart-*' | Sort-Object Name
-          if ($parts.Count -ne 7) { throw "Expected 7 C# bundle parts, found $($parts.Count)." }
-          $b64 = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
+          $partNames = @(
+            'codepart-000',
+            'codepart-001',
+            'codepart-002a1',
+            'codepart-002a21',
+            'codepart-002a22',
+            'codepart-002b',
+            'codepart-003',
+            'codepart-004',
+            'codepart-005',
+            'codepart-006'
+          )
+          foreach ($name in $partNames) {
+            if (-not (Test-Path ".rewrite/$name")) { throw "Missing C# bundle part: $name" }
+          }
+
+          $pieces = foreach ($name in $partNames) {
+            $raw = Get-Content ".rewrite/$name" -Raw
+            if ($name -eq 'codepart-002a21') {
+              $matches = ([regex]::Matches($raw, 'lmrown')).Count
+              if ($matches -ne 1) { throw "Expected one known transfer repair marker, found $matches." }
+              $raw = $raw.Replace('lmrown', 'lmnown')
+            }
+            $raw
+          }
+          $b64 = $pieces -join ''
           $xzPath = Join-Path $env:RUNNER_TEMP 'sleepysource-csharp.tar.xz'
           [IO.File]::WriteAllBytes($xzPath, [Convert]::FromBase64String($b64))
           $actual = (Get-FileHash $xzPath -Algorithm SHA256).Hash.ToLowerInvariant()
