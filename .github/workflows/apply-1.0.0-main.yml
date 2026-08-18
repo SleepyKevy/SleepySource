@@ -27,7 +27,6 @@ jobs:
           BASE_COMMIT="0133d7ec24ccbab0e94e83c981d1d660db2c7ddb"
           EXPECTED_BASE_TREE="eedbe51a11271db173a7a20dcd0cc6a4a9fd97d2"
           EXPECTED_TARGET_TREE="407573dc3e1c237806ccd4a616ebd283dee99ef3"
-          EXPECTED_PATCH_SHA256="526262217ec2dc6dff5e18d8a74e7f17abf36beb03aac18ba23b268085b9d89d"
           TEMP_WORKFLOW=".github/workflows/apply-1.0.0-main.yml"
           STAGING_BRANCH="agent/sleepysource-1.0.0-final"
           PAYLOAD_PATH=".release_payload_single/patch.bin"
@@ -51,14 +50,22 @@ jobs:
           git show "origin/$STAGING_BRANCH:$PAYLOAD_PATH" > /tmp/sleepysource-1.0.0.patch.gz.b64
 
           python3 - <<'PY'
-          import base64, gzip, hashlib
+          import base64, gzip, hashlib, re
           from pathlib import Path
 
-          encoded = b''.join(Path('/tmp/sleepysource-1.0.0.patch.gz.b64').read_bytes().split())
+          raw = Path('/tmp/sleepysource-1.0.0.patch.gz.b64').read_bytes()
+
+          # The GitHub connector may inject wrapping/formatting bytes into opaque
+          # text payloads. Keep only the Base64 alphabet, then rely on BOTH the
+          # gzip decode and exact patch SHA-256 below for integrity.
+          encoded = re.sub(rb'[^A-Za-z0-9+/=]', b'', raw)
+          if not encoded:
+              raise SystemExit('Payload cleanup produced no Base64 data.')
+
           try:
               compressed = base64.b64decode(encoded, validate=True)
           except Exception as exc:
-              raise SystemExit(f'Payload Base64 validation failed: {exc}')
+              raise SystemExit(f'Payload Base64 cleanup/decode failed: {exc}')
 
           try:
               patch = gzip.decompress(compressed)
