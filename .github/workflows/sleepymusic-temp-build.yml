@@ -62,8 +62,8 @@ jobs:
             if ($status.Content -notmatch 'SleepyMusic') { throw 'Status endpoint failed.' }
             $library = Invoke-WebRequest 'http://127.0.0.1:17893/api/library' -UseBasicParsing
             $null = $library.Content | ConvertFrom-Json
-            $home = Invoke-WebRequest 'http://127.0.0.1:17893/' -UseBasicParsing
-            if ($home.Content -notmatch 'SleepyMusic 1.0.0') { throw 'UI route failed.' }
+            $page = Invoke-WebRequest 'http://127.0.0.1:17893/' -UseBasicParsing
+            if ($page.Content -notmatch 'SleepyMusic 1.0.0') { throw 'UI route failed.' }
           }
           finally {
             if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
