@@ -18,13 +18,14 @@ internal sealed class BackendHost : IDisposable
         var builder=WebApplication.CreateBuilder(new WebApplicationOptions{ContentRootPath=AppContext.BaseDirectory,ApplicationName=typeof(BackendHost).Assembly.GetName().Name});
         builder.WebHost.UseKestrel(k=>k.ListenLocalhost(Port));
         var web=builder.Build();
-        web.Use(async(ctx,next)=>{ctx.Response.Headers.CacheControl="no-store";ctx.Response.Headers.XContentTypeOptions="nosniff";ctx.Response.Headers.ReferrerPolicy="no-referrer";ctx.Response.Headers.Append("Content-Security-Policy","default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; media-src 'self' blob:; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'");await next();});
+        web.Use(async(ctx,next)=>{ctx.Response.Headers.CacheControl="no-store";ctx.Response.Headers.XContentTypeOptions="nosniff";ctx.Response.Headers["Referrer-Policy"]="no-referrer";ctx.Response.Headers.Append("Content-Security-Policy","default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; media-src 'self' blob:; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'");await next();});
         MapStatic(web);MapApi(web);app=web;await web.StartAsync(ct);
     }
 
     private static void MapStatic(WebApplication web)
     {
-        var webDir=Path.Combine(AppContext.BaseDirectory,"web"),assetsDir=Path.Combine(AppContext.BaseDirectory,"assets");
+        var webDir=Path.Combine(AppContext.BaseDirectory,"web");
+        var assetsDir=Path.Combine(AppContext.BaseDirectory,"assets");
         web.MapMethods("/",["GET","HEAD"],(HttpContext c)=>LocalFile(Path.Combine(webDir,"index.html"),c));
         web.MapMethods("/index.html",["GET","HEAD"],(HttpContext c)=>LocalFile(Path.Combine(webDir,"index.html"),c));
         web.MapMethods("/manifest.webmanifest",["GET","HEAD"],(HttpContext c)=>LocalFile(Path.Combine(webDir,"manifest.webmanifest"),c));
@@ -53,7 +54,7 @@ internal sealed class BackendHost : IDisposable
         web.MapPost("/api/playlists/{id}/track",async(string id,PlaylistTrackRequest b,CancellationToken ct)=>{await Library.SetPlaylistTrackAsync(id,b.TrackId??"",b.Include,ct);return Results.Json(new{ok=true},AppUtil.Json);});
         web.MapPost("/api/open-data",()=>{Directory.CreateDirectory(AppUtil.DataDir);try{Process.Start(new ProcessStartInfo("explorer.exe",AppUtil.DataDir){UseShellExecute=true});}catch{}return Results.Json(new{ok=true},AppUtil.Json);});
     }
-    public void Stop(){var current=app;app=null;if(current is null)return;try{current.StopAsync(TimeSpan.FromSeconds(1)).GetAwaiter().GetResult();}catch{}try{current.DisposeAsync().AsTask().GetAwaiter().GetResult();}catch{}}
+    public void Stop(){var current=app;app=null;if(current is null)return;try{using var cts=new CancellationTokenSource(TimeSpan.FromSeconds(1));current.StopAsync(cts.Token).GetAwaiter().GetResult();}catch{}try{current.DisposeAsync().AsTask().GetAwaiter().GetResult();}catch{}}
     public void Dispose()=>Stop();
     private sealed record FolderRequest(string? Path);
     private sealed record FavoriteRequest(string? Id,bool Favorite);
