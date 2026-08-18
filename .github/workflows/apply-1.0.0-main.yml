@@ -24,26 +24,25 @@ jobs:
         run: |
           set -euo pipefail
 
+          BASE_COMMIT="0133d7ec24ccbab0e94e83c981d1d660db2c7ddb"
           EXPECTED_BASE_TREE="eedbe51a11271db173a7a20dcd0cc6a4a9fd97d2"
           EXPECTED_TARGET_TREE="407573dc3e1c237806ccd4a616ebd283dee99ef3"
+          EXPECTED_PATCH_SHA256="526262217ec2dc6dff5e18d8a74e7f17abf36beb03aac18ba23b268085b9d89d"
           TEMP_WORKFLOW=".github/workflows/apply-1.0.0-main.yml"
           STAGING_BRANCH="agent/sleepysource-1.0.0-final"
           PAYLOAD_PATH=".release_payload_single/patch.bin"
 
-          # main currently contains exactly two temporary workflow commits on top
-          # of the audited SleepySource 1.1 baseline. Refuse to proceed if that
-          # baseline changed underneath us.
-          BASE_TREE="$(git rev-parse 'HEAD~2^{tree}')"
-          if [ "$BASE_TREE" != "$EXPECTED_BASE_TREE" ]; then
-            echo "Refusing to apply: audited baseline changed."
+          ACTUAL_BASE_TREE="$(git rev-parse "${BASE_COMMIT}^{tree}")"
+          if [ "$ACTUAL_BASE_TREE" != "$EXPECTED_BASE_TREE" ]; then
+            echo "Refusing to apply: audited source commit does not match the expected tree."
             echo "Expected $EXPECTED_BASE_TREE"
-            echo "Got      $BASE_TREE"
+            echo "Got      $ACTUAL_BASE_TREE"
             exit 1
           fi
 
-          CHANGED_SINCE_BASE="$(git diff --name-only HEAD~2..HEAD)"
+          CHANGED_SINCE_BASE="$(git diff --name-only "$BASE_COMMIT"..HEAD | sort -u)"
           if [ "$CHANGED_SINCE_BASE" != "$TEMP_WORKFLOW" ]; then
-            echo "Refusing to apply: unexpected files changed since audited baseline:"
+            echo "Refusing to apply: unexpected files changed since the audited source commit:"
             echo "$CHANGED_SINCE_BASE"
             exit 1
           fi
@@ -55,24 +54,35 @@ jobs:
           import base64, gzip, hashlib
           from pathlib import Path
 
-          encoded = Path('/tmp/sleepysource-1.0.0.patch.gz.b64').read_bytes()
+          encoded = b''.join(Path('/tmp/sleepysource-1.0.0.patch.gz.b64').read_bytes().split())
           try:
               compressed = base64.b64decode(encoded, validate=True)
           except Exception as exc:
               raise SystemExit(f'Payload Base64 validation failed: {exc}')
 
-          patch = gzip.decompress(compressed)
+          try:
+              patch = gzip.decompress(compressed)
+          except Exception as exc:
+              raise SystemExit(f'Payload gzip validation failed: {exc}')
+
+          actual_patch_sha = hashlib.sha256(patch).hexdigest()
+          expected_patch_sha = '526262217ec2dc6dff5e18d8a74e7f17abf36beb03aac18ba23b268085b9d89d'
+          if actual_patch_sha != expected_patch_sha:
+              raise SystemExit(
+                  f'Patch SHA-256 mismatch: expected {expected_patch_sha}, got {actual_patch_sha}'
+              )
+
           Path('/tmp/sleepysource-1.0.0.patch').write_bytes(patch)
-          print('Payload decoded successfully.')
-          print('Patch SHA-256:', hashlib.sha256(patch).hexdigest())
+          print('Payload decoded and SHA-256 verified successfully.')
           PY
 
-          git checkout HEAD~2 -- .
+          # Restore the exact audited source tree in the index/worktree while
+          # keeping the current HEAD so the final push remains fast-forward.
+          git read-tree --reset -u "$BASE_COMMIT"
           git clean -fdx
+
           git apply --check /tmp/sleepysource-1.0.0.patch
           git apply /tmp/sleepysource-1.0.0.patch
-
-          rm -f "$TEMP_WORKFLOW"
 
           python3 - <<'PY'
           import re
@@ -94,8 +104,8 @@ jobs:
                   hits.append(str(path))
 
           if hits:
-              raise SystemExit('Forbidden 1.1/Auth Build branding remains in: ' + ', '.join(hits))
-          print('1.1/Auth Build branding scan: clean.')
+              raise SystemExit('Forbidden old branding remains in: ' + ', '.join(hits))
+          print('Old branding scan: clean.')
           PY
 
           git add -A
