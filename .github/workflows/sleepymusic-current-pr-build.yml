@@ -41,10 +41,11 @@ jobs:
           Copy-Item 'CSharpHost/assets/theme-green.png' "$app/assets/theme-green.png" -Force
           Copy-Item 'CSharpHost/assets/theme-pink.png' "$app/assets/theme-pink.png" -Force
           Copy-Item '_sleepymusic_build/AudioEngine.Wasapi.cs' "$app/AudioEngine.cs" -Force
+          Copy-Item '_sleepymusic_build/SleepyMusic.NativeAudio.csproj' "$app/SleepyMusic.csproj" -Force
           if (-not (Test-Path "$app/web/index.html")) { throw 'SleepyMusic UI was not reconstructed.' }
 
-          # The UI now uses a JavaScript state shim connected to the native C# player.
-          # Remove the obsolete hidden browser media element so WebView2 cannot become the audio output path.
+          # The UI is now only a controller/state view for the native C# audio engine.
+          # Remove the old browser media element so WebView2 cannot become the playback path.
           $ui = Get-Content "$app/web/index.html" -Raw
           $ui = $ui.Replace('<audio id="audio" preload="metadata"></audio>', '')
           Set-Content "$app/web/index.html" $ui -Encoding utf8
