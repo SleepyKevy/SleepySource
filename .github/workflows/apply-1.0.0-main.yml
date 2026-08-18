@@ -1,0 +1,116 @@
+name: Apply SleepySource 1.0.0 to main
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/apply-1.0.0-main.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply verified SleepySource 1.0.0 tree
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          EXPECTED_BASE_TREE="eedbe51a11271db173a7a20dcd0cc6a4a9fd97d2"
+          EXPECTED_TARGET_TREE="407573dc3e1c237806ccd4a616ebd283dee99ef3"
+          TEMP_WORKFLOW=".github/workflows/apply-1.0.0-main.yml"
+          STAGING_BRANCH="agent/sleepysource-1.0.0-final"
+          PAYLOAD_PATH=".release_payload_single/patch.bin"
+
+          # main currently contains exactly two temporary workflow commits on top
+          # of the audited SleepySource 1.1 baseline. Refuse to proceed if that
+          # baseline changed underneath us.
+          BASE_TREE="$(git rev-parse 'HEAD~2^{tree}')"
+          if [ "$BASE_TREE" != "$EXPECTED_BASE_TREE" ]; then
+            echo "Refusing to apply: audited baseline changed."
+            echo "Expected $EXPECTED_BASE_TREE"
+            echo "Got      $BASE_TREE"
+            exit 1
+          fi
+
+          CHANGED_SINCE_BASE="$(git diff --name-only HEAD~2..HEAD)"
+          if [ "$CHANGED_SINCE_BASE" != "$TEMP_WORKFLOW" ]; then
+            echo "Refusing to apply: unexpected files changed since audited baseline:"
+            echo "$CHANGED_SINCE_BASE"
+            exit 1
+          fi
+
+          git fetch origin "$STAGING_BRANCH":refs/remotes/origin/$STAGING_BRANCH
+          git show "origin/$STAGING_BRANCH:$PAYLOAD_PATH" > /tmp/sleepysource-1.0.0.patch.gz.b64
+
+          python3 - <<'PY'
+          import base64, gzip, hashlib
+          from pathlib import Path
+
+          encoded = Path('/tmp/sleepysource-1.0.0.patch.gz.b64').read_bytes()
+          try:
+              compressed = base64.b64decode(encoded, validate=True)
+          except Exception as exc:
+              raise SystemExit(f'Payload Base64 validation failed: {exc}')
+
+          patch = gzip.decompress(compressed)
+          Path('/tmp/sleepysource-1.0.0.patch').write_bytes(patch)
+          print('Payload decoded successfully.')
+          print('Patch SHA-256:', hashlib.sha256(patch).hexdigest())
+          PY
+
+          git checkout HEAD~2 -- .
+          git clean -fdx
+          git apply --check /tmp/sleepysource-1.0.0.patch
+          git apply /tmp/sleepysource-1.0.0.patch
+
+          rm -f "$TEMP_WORKFLOW"
+
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          forbidden = re.compile(
+              r'(SleepySource[ _-]*1\.1|Auth Build|Build 1\.1|v1\.1)',
+              re.IGNORECASE,
+          )
+          hits = []
+          for path in Path('.').rglob('*'):
+              if not path.is_file() or '.git' in path.parts:
+                  continue
+              try:
+                  text = path.read_text(encoding='utf-8')
+              except (UnicodeDecodeError, OSError):
+                  continue
+              if forbidden.search(text):
+                  hits.append(str(path))
+
+          if hits:
+              raise SystemExit('Forbidden 1.1/Auth Build branding remains in: ' + ', '.join(hits))
+          print('1.1/Auth Build branding scan: clean.')
+          PY
+
+          git add -A
+          TARGET_TREE="$(git write-tree)"
+          echo "Computed target tree: $TARGET_TREE"
+          if [ "$TARGET_TREE" != "$EXPECTED_TARGET_TREE" ]; then
+            echo "Refusing to push: exact target tree mismatch."
+            echo "Expected $EXPECTED_TARGET_TREE"
+            echo "Got      $TARGET_TREE"
+            exit 1
+          fi
+
+          git config user.name "SleepySource Release Bot"
+          git config user.email "316921689+SleepyKevy@users.noreply.github.com"
+          git commit -m "Release SleepySource 1.0.0"
+          git push origin HEAD:main
+
+          echo "SleepySource 1.0.0 pushed successfully with exact tree $TARGET_TREE"
