@@ -1,0 +1,77 @@
+name: SleepyMusic Temporary Windows Build
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '_sleepymusic_build/**'
+      - '.github/workflows/sleepymusic-temp-build.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout build branch
+        uses: actions/checkout@v4
+
+      - name: Use .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Prepare app icon
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force '_sleepymusic_build/CSharpHost/assets' | Out-Null
+          Copy-Item 'CSharpHost/assets/app.ico' '_sleepymusic_build/CSharpHost/assets/app.ico' -Force
+
+      - name: Restore and publish Windows x64
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet restore '_sleepymusic_build/CSharpHost/SleepyMusic.csproj' -r win-x64
+          dotnet publish '_sleepymusic_build/CSharpHost/SleepyMusic.csproj' -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore -o 'sleepymusic-dist'
+          if (-not (Test-Path 'sleepymusic-dist/SleepyMusic.exe')) { throw 'SleepyMusic.exe was not produced.' }
+          if ((Get-Item 'sleepymusic-dist/SleepyMusic.exe').Length -lt 1000000) { throw 'SleepyMusic.exe is unexpectedly small.' }
+          Add-Type -AssemblyName System.Drawing
+          $icon = [System.Drawing.Icon]::ExtractAssociatedIcon((Resolve-Path 'sleepymusic-dist/SleepyMusic.exe').Path)
+          if ($null -eq $icon) { throw 'SleepyMusic.exe has no embedded application icon.' }
+          $icon.Dispose()
+
+      - name: Runtime API smoke test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $proc = Start-Process -FilePath (Resolve-Path 'sleepymusic-dist/SleepyMusic.exe') -ArgumentList '--headless' -PassThru
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 50; $i++) {
+              if ($proc.HasExited) { throw "SleepyMusic exited before backend ready. Exit: $($proc.ExitCode)" }
+              try {
+                $health = Invoke-WebRequest 'http://127.0.0.1:17893/api/health' -TimeoutSec 2 -UseBasicParsing
+                if ($health.StatusCode -eq 200 -and $health.Content.Trim() -eq 'ok') { $ready = $true; break }
+              } catch { }
+              Start-Sleep -Milliseconds 400
+            }
+            if (-not $ready) { throw 'SleepyMusic backend did not become ready.' }
+            $status = Invoke-WebRequest 'http://127.0.0.1:17893/api/status' -UseBasicParsing
+            if ($status.Content -notmatch 'SleepyMusic') { throw 'Status endpoint failed.' }
+            $library = Invoke-WebRequest 'http://127.0.0.1:17893/api/library' -UseBasicParsing
+            $null = $library.Content | ConvertFrom-Json
+            $home = Invoke-WebRequest 'http://127.0.0.1:17893/' -UseBasicParsing
+            if ($home.Content -notmatch 'SleepyMusic 1.0.0') { throw 'UI route failed.' }
+          }
+          finally {
+            if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          }
+
+      - name: Upload compiled SleepyMusic
+        uses: actions/upload-artifact@v4
+        with:
+          name: SleepyMusic-1.0.0-Windows-x64
+          path: sleepymusic-dist/
+          if-no-files-found: error
