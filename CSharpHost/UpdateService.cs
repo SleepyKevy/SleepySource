@@ -5,8 +5,8 @@ namespace SleepySource;
 
 internal sealed class UpdateService : IDisposable
 {
-    public const string RepositoryURL = "https://github.com/SleepyKevy/SleepySource";
-    private const string API = "https://api.github.com/repos/SleepyKevy/SleepySource/releases/latest";
+    public const string RepositoryURL = "https://github.com/SleepyKevy/SleepySource-2.0";
+    private const string API = "https://api.github.com/repos/SleepyKevy/SleepySource-2.0/releases/latest";
     private readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(6) };
     private static readonly Regex Numbers = new(@"\d+", RegexOptions.Compiled);
 

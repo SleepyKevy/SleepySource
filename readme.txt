@@ -117,7 +117,7 @@ UPDATES
 -------
 SleepySource checks the configured SleepySource GitHub release only when the user
 chooses Check for Updates. The current update service targets:
- SleepyKevy/SleepySource
+ SleepyKevy/SleepySource-2.0
 
 IMPORTANT NOTES
 ---------------
