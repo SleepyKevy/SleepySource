@@ -371,18 +371,7 @@ internal sealed class MainForm : Form
         });
     }
 
-    private static void ForceProcessExit()
-    {
-        try
-        {
-            using var current = Process.GetCurrentProcess();
-            current.Kill(entireProcessTree: true);
-        }
-        catch
-        {
-            Environment.Exit(0);
-        }
-    }
+    private static void ForceProcessExit() => Environment.Exit(0);
 
     protected override void Dispose(bool disposing)
     {
