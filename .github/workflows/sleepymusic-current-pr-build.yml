@@ -23,7 +23,7 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Reconstruct current SleepyMusic source
+      - name: Reconstruct and patch SleepyMusic source
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -41,14 +41,10 @@ jobs:
           Copy-Item 'CSharpHost/assets/theme-green.png' "$app/assets/theme-green.png" -Force
           Copy-Item 'CSharpHost/assets/theme-pink.png' "$app/assets/theme-pink.png" -Force
           Copy-Item '_sleepymusic_build/AudioEngine.Wasapi.cs' "$app/AudioEngine.cs" -Force
+          Copy-Item '_sleepymusic_build/MainForm.NativeAudio.cs' "$app/MainForm.cs" -Force
           Copy-Item '_sleepymusic_build/SleepyMusic.NativeAudio.csproj' "$app/SleepyMusic.csproj" -Force
+          & '_sleepymusic_build/apply-native-audio-ui.ps1'
           if (-not (Test-Path "$app/web/index.html")) { throw 'SleepyMusic UI was not reconstructed.' }
-
-          # The UI is now only a controller/state view for the native C# audio engine.
-          # Remove the old browser media element so WebView2 cannot become the playback path.
-          $ui = Get-Content "$app/web/index.html" -Raw
-          $ui = $ui.Replace('<audio id="audio" preload="metadata"></audio>', '')
-          Set-Content "$app/web/index.html" $ui -Encoding utf8
 
       - name: Verify native audio contracts
         shell: pwsh
@@ -58,27 +54,17 @@ jobs:
           $project = Get-Content "$app/SleepyMusic.csproj" -Raw
           $audio = Get-Content "$app/AudioEngine.cs" -Raw
           $form = Get-Content "$app/MainForm.cs" -Raw
+          $backend = Get-Content "$app/BackendHost.cs" -Raw
           $library = Get-Content "$app/LibraryService.cs" -Raw
           $ui = Get-Content "$app/web/index.html" -Raw
-
-          foreach ($needle in @('PackageReference Include="NAudio" Version="2.3.0"','PackageReference Include="TagLibSharp" Version="2.3.0"')) {
-            if (-not $project.Contains($needle)) { throw "Project contract missing: $needle" }
-          }
-          foreach ($needle in @('new MediaFoundationReader(path)','new WasapiOut()','PlaybackStopped','SetVolume','SeekUnsafe')) {
-            if (-not $audio.Contains($needle)) { throw "Native audio engine contract missing: $needle" }
-          }
-          foreach ($needle in @('AudioEngine audioEngine','type=="player-load"','type=="player-play"','type=="player-pause"','type=="player-seek"','type=="player-volume"','PushPlayerStateAsync')) {
-            if (-not $form.Contains($needle)) { throw "WebView2/C# playback bridge missing: $needle" }
-          }
-          foreach ($needle in @('AddFiles','data.Files','requestId')) {
-            if (-not (($library + $form + $ui).Contains($needle))) { throw "File-add regression contract missing: $needle" }
-          }
-          foreach ($needle in @('nativePlayer','player-load','sleepyNativePlayerState','sleepyNativePlayerEnded','result?.requestId||result?.request_id')) {
-            if (-not $ui.Contains($needle)) { throw "Native-player UI contract missing: $needle" }
-          }
+          foreach ($needle in @('PackageReference Include="NAudio" Version="2.3.0"','PackageReference Include="TagLibSharp" Version="2.3.0"')) { if (-not $project.Contains($needle)) { throw "Project contract missing: $needle" } }
+          foreach ($needle in @('new MediaFoundationReader(path)','new WasapiOut()','PlaybackStopped','SetVolume','SeekUnsafe')) { if (-not $audio.Contains($needle)) { throw "Native audio engine contract missing: $needle" } }
+          foreach ($needle in @('AudioEngine audioEngine','type=="player-load"','type=="player-play"','type=="player-pause"','type=="player-seek"','type=="player-volume"','PushPlayerStateAsync')) { if (-not $form.Contains($needle)) { throw "WebView2/C# playback bridge missing: $needle" } }
+          if (-not $backend.Contains('public TrackInfo? GetTrack(string id)')) { throw 'Backend track lookup for native playback is missing.' }
+          foreach ($needle in @('AddFiles','data.Files','requestId')) { if (-not (($library + $form + $ui).Contains($needle))) { throw "File-add regression contract missing: $needle" } }
+          foreach ($needle in @('nativePlayer','player-load','sleepyNativePlayerState','sleepyNativePlayerEnded','result?.requestId||result?.request_id')) { if (-not $ui.Contains($needle)) { throw "Native-player UI contract missing: $needle" } }
           if ($ui.Contains('<audio')) { throw 'Browser audio element is still present.' }
           if ($ui.Contains('/api/audio/')) { throw 'UI is still routing playback through the localhost audio endpoint.' }
-
           $match = [regex]::Match($ui, '<script>([\s\S]*?)</script>')
           if (-not $match.Success) { throw 'Could not extract SleepyMusic UI JavaScript.' }
           Set-Content '_sleepymusic_build/native-audio-ui.js' $match.Groups[1].Value -Encoding utf8
@@ -94,9 +80,7 @@ jobs:
           if (-not (Test-Path 'sleepymusic-dist/SleepyMusic.exe')) { throw 'SleepyMusic.exe was not produced.' }
           if ((Get-Item 'sleepymusic-dist/SleepyMusic.exe').Length -lt 1000000) { throw 'SleepyMusic.exe is unexpectedly small.' }
           if (-not (Test-Path 'sleepymusic-dist/web/index.html')) { throw 'Published UI is missing.' }
-          foreach ($asset in @('default.png','theme-red.png','theme-purple.png','theme-green.png','theme-pink.png','app.ico')) {
-            if (-not (Test-Path "sleepymusic-dist/assets/$asset")) { throw "Published asset missing: $asset" }
-          }
+          foreach ($asset in @('default.png','theme-red.png','theme-purple.png','theme-green.png','theme-pink.png','app.ico')) { if (-not (Test-Path "sleepymusic-dist/assets/$asset")) { throw "Published asset missing: $asset" } }
           $publishedUi = Get-Content 'sleepymusic-dist/web/index.html' -Raw
           if ($publishedUi.Contains('<audio') -or $publishedUi.Contains('/api/audio/')) { throw 'Published UI regressed to browser playback.' }
           Add-Type -AssemblyName System.Drawing
@@ -113,10 +97,7 @@ jobs:
             $ready = $false
             for ($i = 0; $i -lt 60; $i++) {
               if ($proc.HasExited) { throw "SleepyMusic exited before backend ready. Exit code: $($proc.ExitCode)" }
-              try {
-                $health = Invoke-WebRequest 'http://127.0.0.1:17894/api/health' -TimeoutSec 2 -UseBasicParsing
-                if ($health.StatusCode -eq 200 -and $health.Content.Trim() -eq 'ok') { $ready = $true; break }
-              } catch { }
+              try { $health = Invoke-WebRequest 'http://127.0.0.1:17894/api/health' -TimeoutSec 2 -UseBasicParsing; if ($health.StatusCode -eq 200 -and $health.Content.Trim() -eq 'ok') { $ready = $true; break } } catch { }
               Start-Sleep -Milliseconds 400
             }
             if (-not $ready) { throw 'SleepyMusic backend did not become ready.' }
@@ -126,11 +107,9 @@ jobs:
             $snapshot = $library.Content | ConvertFrom-Json
             if ($null -eq $snapshot.tracks) { throw 'Library snapshot is missing tracks.' }
             $home = Invoke-WebRequest 'http://127.0.0.1:17894/' -TimeoutSec 5 -UseBasicParsing
-            if ($home.Content -notmatch 'SleepyMusic 1.0.0' -or $home.Content -match '<audio') { throw 'Native-audio UI route failed.' }
+            if ($home.Content -notmatch 'SleepyMusic 1.0.0' -or $home.Content -match '<audio' -or $home.Content -match '/api/audio/') { throw 'Native-audio UI route failed.' }
           }
-          finally {
-            if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
-          }
+          finally { if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } }
 
       - name: Upload compiled SleepyMusic
         uses: actions/upload-artifact@v4
