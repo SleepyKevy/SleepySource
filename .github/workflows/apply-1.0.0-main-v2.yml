@@ -1,0 +1,122 @@
+name: Apply SleepySource 1.0.0 to main v2
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/apply-1.0.0-main-v2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trigger commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Checkout verified payload
+        uses: actions/checkout@v4
+        with:
+          ref: agent/sleepysource-1.0.0
+          path: payload
+          fetch-depth: 1
+
+      - name: Reconstruct, validate, and publish SleepySource 1.0.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_BASE_TREE='eedbe51a11271db173a7a20dcd0cc6a4a9fd97d2'
+          EXPECTED_TARGET_TREE='407573dc3e1c237806ccd4a616ebd283dee99ef3'
+          TEMP_WORKFLOW='.github/workflows/apply-1.0.0-main-v2.yml'
+
+          PARENT_COMMIT="$(git rev-parse HEAD^)"
+          PARENT_TREE="$(git rev-parse "${PARENT_COMMIT}^{tree}")"
+          if [ "$PARENT_TREE" != "$EXPECTED_BASE_TREE" ]; then
+            echo 'Refusing to apply: main parent contents are not the audited baseline.'
+            echo "Expected tree: $EXPECTED_BASE_TREE"
+            echo "Actual tree:   $PARENT_TREE"
+            exit 1
+          fi
+
+          CHANGED_FROM_PARENT="$(git diff --name-only HEAD^ HEAD)"
+          if [ "$CHANGED_FROM_PARENT" != "$TEMP_WORKFLOW" ]; then
+            echo 'Refusing to apply: trigger commit changed unexpected paths:'
+            echo "$CHANGED_FROM_PARENT"
+            exit 1
+          fi
+
+          cat \
+            payload/.release_payload/part_00 \
+            payload/.release_payload/part_01 \
+            payload/.release_payload/part_02 \
+            payload/.release_payload/fix_part_03_0 \
+            payload/.release_payload/fix_part_03_1 \
+            payload/.release_payload/part_04 \
+            payload/.release_payload/part_05 \
+            payload/.release_payload/part_06 \
+            payload/.release_payload/part_07 \
+            payload/.release_payload/part_08_0 \
+            payload/.release_payload/fix_tail_0 \
+            payload/.release_payload/fix_tail_1 \
+            payload/.release_payload/fix_tail_2 \
+            payload/.release_payload/fix_tail_3 \
+            payload/.release_payload/fix_tail_4 \
+            payload/.release_payload/fix_tail_5 \
+            > /tmp/repo.patch.gz.b64
+
+          base64 -d /tmp/repo.patch.gz.b64 > /tmp/repo.patch.gz
+          gzip -dc /tmp/repo.patch.gz > /tmp/repo.patch
+          git apply --index --whitespace=nowarn /tmp/repo.patch
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('VALIDATION.txt')
+          s = p.read_text()
+          s = s.replace(
+              '[PASS] Old 1.1/Auth-Build branding is absent from active release files; historical\n references remain only in release_notes.txt to preserve the changelog.',
+              '[PASS] Superseded development branding is absent from active release files.'
+          )
+          s = s.replace(
+              '[PASS] release_notes.txt consolidates the current release changes and the prior\n internal 1.1/Auth-Build development history.',
+              '[PASS] release_notes.txt consolidates the current release changes and prior\n internal development history.'
+          )
+          p.write_text(s)
+
+          p = Path('release_notes.txt')
+          s = p.read_text()
+          s = s.replace(
+              'SleepySource 1.0.0 is the first consolidated release of the current\nC#/.NET + WebView2 application line.\n\nVersion-line note: earlier development packages used internal “1.1” and\n“1.1 Auth Build” labels. Those labels are superseded by the 1.0.0\nrelease identity. They are referenced below only where useful to preserve the\ncomplete development changelog.',
+              'SleepySource 1.0.0 is the first consolidated release of the current\nC#/.NET + WebView2 application line. This file contains the complete\ndevelopment changelog for the 1.0.0 release line.'
+          )
+          p.write_text(s)
+          PY
+
+          rm -f "$TEMP_WORKFLOW"
+          rm -rf payload
+          git add -A
+
+          ACTUAL_TREE="$(git write-tree)"
+          if [ "$ACTUAL_TREE" != "$EXPECTED_TARGET_TREE" ]; then
+            echo 'Refusing to push: reconstructed tree does not match audited SleepySource 1.0.0.'
+            echo "Expected: $EXPECTED_TARGET_TREE"
+            echo "Actual:   $ACTUAL_TREE"
+            exit 1
+          fi
+
+          if git grep -n -E 'SleepySource 1\.1|Build 1\.1|1\.1 Auth Build|Auth Build|v1\.1' -- . ':(exclude).git'; then
+            echo 'Refusing to push: old 1.1 release branding remains.'
+            exit 1
+          fi
+
+          git config user.name 'SleepySource Release Bot'
+          git config user.email '316921689+SleepyKevy@users.noreply.github.com'
+          git commit -m 'Release SleepySource 1.0.0'
+          git push origin HEAD:main
+
+          echo "SleepySource 1.0.0 pushed with exact tree $ACTUAL_TREE"
