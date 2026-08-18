@@ -26,8 +26,18 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $payload = Get-Content '_sleepymusic_build/fix_payload.b64' -Raw
-          [IO.File]::WriteAllBytes('_sleepymusic_build/fix_payload.zip', [Convert]::FromBase64String($payload.Trim()))
+          $parts = Get-ChildItem '_sleepymusic_build/fix_chunks/part*' | Sort-Object Name
+          if ($parts.Count -ne 7) { throw "Expected 7 payload chunks, found $($parts.Count)." }
+          $payload = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
+          [IO.File]::WriteAllBytes('_sleepymusic_build/fix_payload.zip', [Convert]::FromBase64String($payload))
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path '_sleepymusic_build/fix_payload.zip'))
+          try {
+            $names = $zip.Entries | ForEach-Object FullName
+            foreach ($required in @('MainForm.cs','BackendHost.cs','LibraryService.cs','web/index.html','SleepyMusic.csproj')) {
+              if ($names -notcontains $required) { throw "Reconstructed payload is missing $required" }
+            }
+          } finally { $zip.Dispose() }
           Expand-Archive '_sleepymusic_build/fix_payload.zip' '_sleepymusic_build/CSharpHost' -Force
           New-Item -ItemType Directory -Force '_sleepymusic_build/CSharpHost/assets' | Out-Null
           Copy-Item 'CSharpHost/assets/app.ico' '_sleepymusic_build/CSharpHost/assets/app.ico' -Force
