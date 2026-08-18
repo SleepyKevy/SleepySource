@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   runtime-smoke:
@@ -177,3 +178,36 @@ jobs:
           name: SleepySource-1.0.0-Smoke-Tested
           path: smoke-dist/
           if-no-files-found: error
+
+      - name: Publish runtime smoke commit status
+        if: always()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ job.status }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RESULT -eq 'success') {
+            $state = 'success'
+            $description = 'Windows runtime smoke passed.'
+          }
+          else {
+            $state = 'failure'
+            $description = 'Windows runtime smoke failed.'
+          }
+          $body = @{
+            state = $state
+            context = 'sleepysource/runtime-smoke'
+            description = $description
+            target_url = $env:RUN_URL
+          } | ConvertTo-Json
+          $headers = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$env:REPO/statuses/$env:SHA" -Headers $headers -ContentType 'application/json' -Body $body | Out-Null
+
