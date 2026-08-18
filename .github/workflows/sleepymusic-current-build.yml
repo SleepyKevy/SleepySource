@@ -1,0 +1,95 @@
+name: SleepyMusic Current Windows Build
+
+on:
+  push:
+    branches:
+      - chatgpt/sleepymusic-build-20260818
+    paths:
+      - '_sleepymusic_build/READY-CURRENT'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout build branch
+        uses: actions/checkout@v4
+
+      - name: Use .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Reconstruct current SleepyMusic source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $parts = 0..4 | ForEach-Object { Get-Content ("_sleepymusic_build/current-source.part{0:D2}" -f $_) -Raw }
+          $payload = ($parts -join '').Trim()
+          [IO.File]::WriteAllBytes('_sleepymusic_build/current-source.zip', [Convert]::FromBase64String($payload))
+          if (Test-Path '_sleepymusic_build/current') { Remove-Item '_sleepymusic_build/current' -Recurse -Force }
+          Expand-Archive '_sleepymusic_build/current-source.zip' '_sleepymusic_build/current' -Force
+          $app = '_sleepymusic_build/current/SleepyMusic'
+          New-Item -ItemType Directory -Force "$app/assets" | Out-Null
+          Copy-Item 'CSharpHost/assets/app.ico' "$app/assets/app.ico" -Force
+          Copy-Item 'CSharpHost/assets/default.png' "$app/assets/default.png" -Force
+          Copy-Item 'CSharpHost/assets/theme-red.png' "$app/assets/theme-red.png" -Force
+          Copy-Item 'CSharpHost/assets/theme-purple.png' "$app/assets/theme-purple.png" -Force
+          Copy-Item 'CSharpHost/assets/theme-green.png' "$app/assets/theme-green.png" -Force
+          Copy-Item 'CSharpHost/assets/theme-pink.png' "$app/assets/theme-pink.png" -Force
+          if (-not (Test-Path "$app/web/index.html")) { throw 'SleepyMusic UI was not reconstructed.' }
+
+      - name: Restore and publish Windows x64
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $project = '_sleepymusic_build/current/SleepyMusic/SleepyMusic.csproj'
+          dotnet restore $project -r win-x64
+          dotnet publish $project -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore -o 'sleepymusic-dist'
+          if (-not (Test-Path 'sleepymusic-dist/SleepyMusic.exe')) { throw 'SleepyMusic.exe was not produced.' }
+          if ((Get-Item 'sleepymusic-dist/SleepyMusic.exe').Length -lt 1000000) { throw 'SleepyMusic.exe is unexpectedly small.' }
+          if (-not (Test-Path 'sleepymusic-dist/web/index.html')) { throw 'Published UI is missing.' }
+          foreach ($asset in @('default.png','theme-red.png','theme-purple.png','theme-green.png','theme-pink.png','app.ico')) {
+            if (-not (Test-Path "sleepymusic-dist/assets/$asset")) { throw "Published asset missing: $asset" }
+          }
+          Add-Type -AssemblyName System.Drawing
+          $embeddedIcon = [System.Drawing.Icon]::ExtractAssociatedIcon((Resolve-Path 'sleepymusic-dist/SleepyMusic.exe').Path)
+          if ($null -eq $embeddedIcon) { throw 'SleepyMusic.exe has no embedded icon.' }
+          $embeddedIcon.Dispose()
+
+      - name: Runtime API smoke test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $proc = Start-Process -FilePath (Resolve-Path 'sleepymusic-dist/SleepyMusic.exe') -ArgumentList '--headless' -PassThru
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 60; $i++) {
+              if ($proc.HasExited) { throw "SleepyMusic exited before backend ready. Exit code: $($proc.ExitCode)" }
+              try {
+                $health = Invoke-WebRequest 'http://127.0.0.1:17894/api/health' -TimeoutSec 2 -UseBasicParsing
+                if ($health.StatusCode -eq 200 -and $health.Content.Trim() -eq 'ok') { $ready = $true; break }
+              } catch { }
+              Start-Sleep -Milliseconds 400
+            }
+            if (-not $ready) { throw 'SleepyMusic backend did not become ready.' }
+            $status = Invoke-WebRequest 'http://127.0.0.1:17894/api/status' -TimeoutSec 5 -UseBasicParsing
+            if ($status.Content -notmatch 'SleepyMusic') { throw 'Status endpoint failed.' }
+            $library = Invoke-WebRequest 'http://127.0.0.1:17894/api/library' -TimeoutSec 5 -UseBasicParsing
+            $null = $library.Content | ConvertFrom-Json
+            $home = Invoke-WebRequest 'http://127.0.0.1:17894/' -TimeoutSec 5 -UseBasicParsing
+            if ($home.Content -notmatch 'SleepyMusic 1.0.0') { throw 'UI route failed.' }
+          }
+          finally {
+            if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
+          }
+
+      - name: Upload compiled SleepyMusic
+        uses: actions/upload-artifact@v4
+        with:
+          name: SleepyMusic-1.0.0-Windows-x64-current
+          path: sleepymusic-dist/
+          if-no-files-found: error
