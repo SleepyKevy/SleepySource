@@ -41,6 +41,7 @@ jobs:
           Expand-Archive '_sleepymusic_build/fix_payload.zip' '_sleepymusic_build/CSharpHost' -Force
           New-Item -ItemType Directory -Force '_sleepymusic_build/CSharpHost/assets' | Out-Null
           Copy-Item 'CSharpHost/assets/app.ico' '_sleepymusic_build/CSharpHost/assets/app.ico' -Force
+          & '_sleepymusic_build/native_response_fix.ps1'
 
       - name: Verify UI and native picker contracts
         shell: pwsh
@@ -49,11 +50,18 @@ jobs:
           $ui = Get-Content '_sleepymusic_build/CSharpHost/web/index.html' -Raw
           $form = Get-Content '_sleepymusic_build/CSharpHost/MainForm.cs' -Raw
           $backend = Get-Content '_sleepymusic_build/CSharpHost/BackendHost.cs' -Raw
-          foreach ($needle in @('pick-folder','pick-files','sleepyNativeResult','sleepyUiReady')) {
+          $library = Get-Content '_sleepymusic_build/CSharpHost/LibraryService.cs' -Raw
+          foreach ($needle in @('pick-folder','pick-files','sleepyNativeResult','result?.request_id','sleepyUiReady')) {
             if (-not $ui.Contains($needle)) { throw "UI native bridge contract missing: $needle" }
           }
-          foreach ($needle in @('type=="pick-folder"','type=="pick-files"','IsScriptEnabled=true','SendNativeResultAsync')) {
+          foreach ($needle in @('type=="pick-folder"','type=="pick-files"','IsScriptEnabled=true','SendNativeResultAsync','["requestId"] = requestId','AddFilesFromHostAsync(files)')) {
             if (-not $form.Contains($needle)) { throw "C# WebView2 bridge contract missing: $needle" }
+          }
+          foreach ($needle in @('library.AddFiles(picked)','return await library.ScanAsync()')) {
+            if (-not $backend.Contains($needle)) { throw "Backend file-add contract missing: $needle" }
+          }
+          foreach ($needle in @('data.Files.Add(full)','foreach (var file in standalone)','Supported.Contains(Path.GetExtension(file))')) {
+            if (-not $library.Contains($needle)) { throw "Library standalone-file contract missing: $needle" }
           }
           if (-not $backend.Contains('public const int Port = 17894;')) { throw 'Backend/UI port contract is not 17894.' }
           $match = [regex]::Match($ui, '<script>([\s\S]*?)</script>')
@@ -96,12 +104,8 @@ jobs:
             $library = Invoke-WebRequest "$base/api/library" -UseBasicParsing
             $snapshot = $library.Content | ConvertFrom-Json
             if ($null -eq $snapshot.tracks) { throw 'Library snapshot shape is missing tracks.' }
-            $folderFallback = Invoke-WebRequest "$base/api/library/add-folder" -Method Post -ContentType 'application/json' -Body '{}' -UseBasicParsing
-            $null = $folderFallback.Content | ConvertFrom-Json
-            $fileFallback = Invoke-WebRequest "$base/api/library/add-files" -Method Post -ContentType 'application/json' -Body '{}' -UseBasicParsing
-            $null = $fileFallback.Content | ConvertFrom-Json
             $page = Invoke-WebRequest "$base/" -UseBasicParsing
-            if ($page.Content -notmatch 'SleepyMusic 1.0.0' -or $page.Content -notmatch 'pick-folder' -or $page.Content -notmatch 'pick-files') { throw 'Final UI route is not the fixed UI.' }
+            if ($page.Content -notmatch 'SleepyMusic 1.0.0' -or $page.Content -notmatch 'pick-files' -or $page.Content -notmatch 'request_id') { throw 'Final UI route is not the file-add fixed UI.' }
           }
           finally {
             if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
@@ -110,6 +114,6 @@ jobs:
       - name: Upload compiled SleepyMusic
         uses: actions/upload-artifact@v4
         with:
-          name: SleepyMusic-1.0.0-Windows-x64-Fixed
+          name: SleepyMusic-1.0.0-Windows-x64-FileAddFixed
           path: sleepymusic-dist/
           if-no-files-found: error
