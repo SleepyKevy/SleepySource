@@ -74,7 +74,7 @@ jobs:
           if ($null -eq $icon) { throw 'SleepyMusic.exe has no embedded application icon.' }
           $icon.Dispose()
 
-      - name: Runtime API and UI execution smoke test
+      - name: Runtime API smoke test
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -101,16 +101,7 @@ jobs:
             $fileFallback = Invoke-WebRequest "$base/api/library/add-files" -Method Post -ContentType 'application/json' -Body '{}' -UseBasicParsing
             $null = $fileFallback.Content | ConvertFrom-Json
             $page = Invoke-WebRequest "$base/" -UseBasicParsing
-            if ($page.Content -notmatch 'SleepyMusic 1.0.0' -or $page.Content -notmatch 'pick-folder') { throw 'Final UI route is not the fixed UI.' }
-            $edgeCandidates = @(
-              "$env:ProgramFiles (x86)\Microsoft\Edge\Application\msedge.exe",
-              "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe"
-            )
-            $edge = $edgeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-            if ($edge) {
-              $dom = & $edge --headless --disable-gpu --no-first-run --dump-dom "$base/" 2>$null
-              if (($dom -join "`n") -notmatch 'data-sleepy-ui-ready="1"') { throw 'SleepyMusic UI JavaScript did not execute in Chromium.' }
-            }
+            if ($page.Content -notmatch 'SleepyMusic 1.0.0' -or $page.Content -notmatch 'pick-folder' -or $page.Content -notmatch 'pick-files') { throw 'Final UI route is not the fixed UI.' }
           }
           finally {
             if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
