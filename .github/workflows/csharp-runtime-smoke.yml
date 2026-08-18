@@ -1,10 +1,9 @@
-name: SleepySource 1.1 Pure C# Runtime Smoke
+name: SleepySource 1.0.0 Runtime Smoke
 
 on:
   push:
     branches:
       - main
-      - csharp-rewrite-1.1
   workflow_dispatch:
 
 permissions:
@@ -79,8 +78,7 @@ jobs:
               '/api/chat/state',
               '/api/chat/settings',
               '/api/profiles',
-              '/api/cloudflare/status',
-              '/api/stream/auth/status'
+              '/api/kick/status'
             )
             foreach ($path in $jsonRoutes) {
               $r = Invoke-WebRequest ($base + $path) -TimeoutSec 5 -UseBasicParsing
@@ -109,7 +107,10 @@ jobs:
             if ($backup.StatusCode -ne 200 -or $backup.Headers['Content-Type'] -notmatch 'application/zip') { throw 'Backup export contract failed.' }
 
             if (-not (Test-Path 'smoke-dist/SleepySource_Data')) { throw 'SleepySource_Data was not created beside the pure C# executable.' }
-            Write-Host 'Pure C# runtime/API smoke checks passed.'
+            if (Test-Path 'CSharpHost/CloudflareService.cs') { throw 'Legacy Cloudflare Quick Tunnel service must not exist in the release.' }
+            if (Test-Path 'CSharpHost/KickService.cs') { throw 'Legacy Kick credential/auth service must not exist in the release.' }
+            if (-not (Test-Path 'CSharpHost/SleepySourceApiService.cs')) { throw 'Hosted SleepySource API service is missing.' }
+            Write-Host 'SleepySource 1.0.0 runtime/API smoke checks passed.'
           }
           finally {
             if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
@@ -173,6 +174,6 @@ jobs:
       - name: Upload smoke-tested Windows build
         uses: actions/upload-artifact@v4
         with:
-          name: SleepySource-1.1-Pure-CSharp-Smoke-Tested
+          name: SleepySource-1.0.0-Smoke-Tested
           path: smoke-dist/
           if-no-files-found: error

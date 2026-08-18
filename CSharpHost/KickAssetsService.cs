@@ -6,18 +6,17 @@ namespace SleepySource;
 internal sealed class KickAssetsService : IDisposable
 {
     private readonly ChatService chat;
-    private readonly KickService kick;
     private readonly HttpClient http;
     private static readonly Dictionary<string,string> RoleBadges = new(StringComparer.OrdinalIgnoreCase)
     {
         ["broadcaster"]="broadcaster.svg",["moderator"]="moderator.svg",["vip"]="vip.svg",["og"]="og.svg",["founder"]="founder.svg",["subscriber"]="subscriber.svg",["verified"]="verified.svg",["staff"]="staff.svg",["sidekick"]="sidekick.svg",["sub_gifter"]="subGifter.svg",["sub_gifter_25"]="subGifter25.svg",["sub_gifter_50"]="subGifter50.svg",["sub_gifter_100"]="subGifter100.svg",["sub_gifter_200"]="subGifter200.svg"
     };
 
-    public KickAssetsService(ChatService chat, KickService kick)
+    public KickAssetsService(ChatService chat)
     {
-        this.chat=chat;this.kick=kick;
+        this.chat=chat;
         http=new HttpClient(new HttpClientHandler{AllowAutoRedirect=false}){Timeout=TimeSpan.FromSeconds(8)};
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("SleepySource/1.1");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("SleepySource/1.0");
     }
 
     public async Task<object> SevenTVAsync(string? setId,string? kickChannel,CancellationToken ct)
@@ -29,13 +28,10 @@ internal sealed class KickAssetsService : IDisposable
         if(setId.Length>0)endpoint="https://7tv.io/v3/emote-sets/"+Uri.EscapeDataString(setId);
         else
         {
-            var channel=AppUtil.NormalizeKickChannelSlug(kickChannel);if(channel.Length==0)channel=state.Settings.KickChannel;
+            var channel=AppUtil.NormalizeKickChannelSlug(kickChannel);if(channel.Length==0)channel=state.ConnectedChannel;
             var userId=state.BroadcasterUserID;
-            if(userId.Length==0 || (state.ConnectedChannel.Length>0&&!state.ConnectedChannel.Equals(channel,StringComparison.OrdinalIgnoreCase)))
-            {
-                var token=await chat.EnsureKickAccessTokenAsync(kick,ct);
-                var r=await kick.ResolveBroadcasterAsync(channel,token,ct);userId=r.UserID;chat.SetResolvedChannel(r.Slug,userId);
-            }
+            if(userId.Length==0)
+                return new{enabled=true,channel=new{emotes=Array.Empty<object>()},global=new{emotes=Array.Empty<object>()},warning="Connect with Kick to resolve the channel's 7TV emotes automatically."};
             endpoint="https://7tv.io/v3/users/kick/"+Uri.EscapeDataString(userId);
         }
         var channelJson=await FetchJsonAsync(endpoint,4L<<20,ct);

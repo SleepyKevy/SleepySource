@@ -9,7 +9,7 @@ namespace SleepySource;
 
 internal static class AppUtil
 {
-    public const string DisplayVersion = "1.1";
+    public const string DisplayVersion = "1.0.0";
     public const string ListenPrefix = "http://127.0.0.1:17891/";
     public const long MaxUploadBytes = 50L << 20;
     public const long MaxFontBytes = 20L << 20;

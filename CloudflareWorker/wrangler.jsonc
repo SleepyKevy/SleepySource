@@ -1,0 +1,31 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sleepysource-api",
+  "main": "worker.js",
+  "compatibility_date": "2026-08-17",
+  "keep_vars": true,
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "sleepysource-auth",
+      "database_id": "506132fb-ed3d-4ffb-9e47-ad510050363a"
+    }
+  ],
+
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "REALTIME",
+        "class_name": "SleepySourceRealtime"
+      }
+    ]
+  },
+
+  "exports": {
+    "SleepySourceRealtime": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  }
+}

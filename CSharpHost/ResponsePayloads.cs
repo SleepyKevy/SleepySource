@@ -16,7 +16,6 @@ internal static class ResponsePayloads
             ["webhook_verified_count"] = s.WebhookVerifiedCount,
             ["webhook_accepted_count"] = s.WebhookAcceptedCount,
             ["webhook_rejected_count"] = s.WebhookRejectedCount,
-            ["credentials_saved"] = s.CredentialsSaved,
             ["credential_storage"] = s.CredentialStorage
         };
 
@@ -31,33 +30,6 @@ internal static class ResponsePayloads
         if (s.WebhookLastRequestAt != 0) result["webhook_last_request_at"] = s.WebhookLastRequestAt;
         AddString(result, "webhook_last_event_type", s.WebhookLastEventType);
         AddString(result, "webhook_last_error", s.WebhookLastError);
-        AddString(result, "saved_client_id", s.SavedClientID);
-        return result;
-    }
-
-    public static Dictionary<string, object?> Cloudflare(
-        bool running,
-        long startedAt,
-        string lastError,
-        string publicUrl,
-        string binary,
-        bool runtimeReady,
-        string runtimeVersion)
-    {
-        var result = new Dictionary<string, object?>(StringComparer.Ordinal)
-        {
-            ["running"] = running,
-            ["integrated"] = true,
-            ["runtime_ready"] = runtimeReady,
-            ["runtime_version"] = runtimeVersion,
-            ["mode"] = "quick",
-            ["needs_kick_setup"] = true
-        };
-        if (startedAt != 0) result["started_at"] = startedAt;
-        AddString(result, "last_error", lastError);
-        AddString(result, "public_url", publicUrl);
-        if (!string.IsNullOrWhiteSpace(publicUrl)) result["webhook_url"] = publicUrl.TrimEnd('/') + "/api/chat/kick-webhook";
-        AddString(result, "binary", binary);
         return result;
     }
 

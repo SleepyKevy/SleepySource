@@ -12,7 +12,7 @@ internal sealed class UpdateService : IDisposable
 
     public UpdateService()
     {
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("SleepySource/1.1");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("SleepySource/1.0");
         http.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
     }
 
@@ -26,7 +26,7 @@ internal sealed class UpdateService : IDisposable
             using var doc=JsonDocument.Parse(await resp.Content.ReadAsByteArrayAsync(ct));
             var r=doc.RootElement;
             var tag=Get(r,"tag_name"); var name=Get(r,"name"); var latest=(tag.Length>0?tag:name).TrimStart('v','V');
-            var cmp=Compare("1.1.0",latest);
+            var cmp=Compare("1.0.0",latest);
             var notes=Get(r,"body").Replace("\r\n","\n").Trim(); if(notes.Length>12000)notes=notes[..12000]+"\n\n…View the full release notes on GitHub.";
             var url=Get(r,"html_url");if(url.Length==0)url=RepositoryURL+"/releases/latest";
             var status=cmp<0?"available":cmp>0?"ahead":"up_to_date";

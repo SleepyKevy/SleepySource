@@ -139,7 +139,7 @@ internal sealed class MediaDiagnostics
 
 internal sealed class AppState
 {
-    public string Version { get; set; } = "1.1";
+    public string Version { get; set; } = "1.0.0";
     public Track Track { get; set; } = new();
     public string DisplayText { get; set; } = "";
     public Settings Settings { get; set; } = new();
@@ -207,7 +207,6 @@ internal sealed class ChatSettings
     public int UsernameWeight { get; set; } = 800;
     [JsonPropertyName("seventv_enabled")]
     public bool SevenTVEnabled { get; set; } = true;
-    public bool RememberKickLogin { get; set; } = true;
     public string KickChannel { get; set; } = "";
     [JsonPropertyName("seventv_emote_set_id")]
     public string SevenTVEmoteSetID { get; set; } = "";
@@ -257,8 +256,6 @@ internal sealed class ChatState
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public long WebhookLastRequestAt { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public string WebhookLastEventType { get; set; } = "";
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public string WebhookLastError { get; set; } = "";
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public string SavedClientID { get; set; } = "";
-    public bool CredentialsSaved { get; set; }
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public string CredentialStorage { get; set; } = "";
 }
 
@@ -467,31 +464,9 @@ internal sealed class HealthCheck
 
 internal sealed class HealthReport
 {
-    public string Version { get; set; } = "1.1";
+    public string Version { get; set; } = "1.0.0";
     public long CheckedAt { get; set; }
     public string OverallStatus { get; set; } = "pass";
     public string Summary { get; set; } = "";
     public List<HealthCheck> Checks { get; set; } = [];
-}
-
-internal sealed class KickUserAuthState
-{
-    public bool Authorized { get; set; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public string Scope { get; set; } = "";
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public long ExpiresAt { get; set; }
-    public string RedirectURI { get; set; } = "http://127.0.0.1:17891/oauth/kick/callback";
-    public bool Pending { get; set; }
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] public string LastError { get; set; } = "";
-    public bool HasAppCredentials { get; set; }
-}
-
-internal sealed class CloudflareTunnelState
-{
-    public bool Running { get; set; }
-    public string Status { get; set; } = "stopped";
-    public string PublicURL { get; set; } = "";
-    public string WebhookURL { get; set; } = "";
-    public string LastError { get; set; } = "";
-    public string Executable { get; set; } = "";
-    public long StartedAt { get; set; }
 }

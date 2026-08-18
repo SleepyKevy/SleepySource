@@ -1,0 +1,11 @@
+SleepySource 1.0.0 Release — final tested auth backend package
+
+Confirmed working on 2026-08-17:
+- Branded /connect/kick page
+- Kick OAuth callback
+- Desktop OAuth polling hotfix
+- D1 DB binding: sleepysource-auth
+- REALTIME Durable Object binding
+- SleepySourceRealtime SQLite export declaration
+- Wrangler deployment to sleepysource-api
+- /health reports configured/healthy

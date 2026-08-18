@@ -4,7 +4,7 @@ namespace SleepySource;
 
 internal static class Program
 {
-    private const string MutexName = @"Local\SleepySource.CSharp.1.1";
+    private const string MutexName = @"Local\SleepySource.CSharp.1.0.0.Release";
 
     [STAThread]
     private static void Main(string[] args)
@@ -15,8 +15,8 @@ internal static class Program
             if (!args.Contains("--headless", StringComparer.OrdinalIgnoreCase))
             {
                 MessageBox.Show(
-                    "SleepySource 1.1 is already running.",
-                    "SleepySource 1.1",
+                    "SleepySource 1.0.0 is already running.",
+                    "SleepySource 1.0.0",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Information);
             }
