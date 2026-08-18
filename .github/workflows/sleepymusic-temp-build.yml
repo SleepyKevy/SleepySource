@@ -22,12 +22,34 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Prepare app icon
+      - name: Apply exact SleepyMusic fixed source payload
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $payload = Get-Content '_sleepymusic_build/fix_payload.b64' -Raw
+          [IO.File]::WriteAllBytes('_sleepymusic_build/fix_payload.zip', [Convert]::FromBase64String($payload.Trim()))
+          Expand-Archive '_sleepymusic_build/fix_payload.zip' '_sleepymusic_build/CSharpHost' -Force
           New-Item -ItemType Directory -Force '_sleepymusic_build/CSharpHost/assets' | Out-Null
           Copy-Item 'CSharpHost/assets/app.ico' '_sleepymusic_build/CSharpHost/assets/app.ico' -Force
+
+      - name: Verify UI and native picker contracts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $ui = Get-Content '_sleepymusic_build/CSharpHost/web/index.html' -Raw
+          $form = Get-Content '_sleepymusic_build/CSharpHost/MainForm.cs' -Raw
+          $backend = Get-Content '_sleepymusic_build/CSharpHost/BackendHost.cs' -Raw
+          foreach ($needle in @('pick-folder','pick-files','sleepyNativeResult','sleepyUiReady')) {
+            if (-not $ui.Contains($needle)) { throw "UI native bridge contract missing: $needle" }
+          }
+          foreach ($needle in @('type=="pick-folder"','type=="pick-files"','IsScriptEnabled=true','SendNativeResultAsync')) {
+            if (-not $form.Contains($needle)) { throw "C# WebView2 bridge contract missing: $needle" }
+          }
+          if (-not $backend.Contains('public const int Port = 17894;')) { throw 'Backend/UI port contract is not 17894.' }
+          $match = [regex]::Match($ui, '<script>([\s\S]*?)</script>')
+          if (-not $match.Success) { throw 'Could not extract SleepyMusic UI JavaScript.' }
+          Set-Content -Path '_sleepymusic_build/ui-smoke.js' -Value $match.Groups[1].Value -Encoding utf8
+          node --check '_sleepymusic_build/ui-smoke.js'
 
       - name: Restore and publish Windows x64
         shell: pwsh
@@ -42,28 +64,43 @@ jobs:
           if ($null -eq $icon) { throw 'SleepyMusic.exe has no embedded application icon.' }
           $icon.Dispose()
 
-      - name: Runtime API smoke test
+      - name: Runtime API and UI execution smoke test
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $base = 'http://127.0.0.1:17894'
           $proc = Start-Process -FilePath (Resolve-Path 'sleepymusic-dist/SleepyMusic.exe') -ArgumentList '--headless' -PassThru
           try {
             $ready = $false
             for ($i = 0; $i -lt 50; $i++) {
               if ($proc.HasExited) { throw "SleepyMusic exited before backend ready. Exit: $($proc.ExitCode)" }
               try {
-                $health = Invoke-WebRequest 'http://127.0.0.1:17893/api/health' -TimeoutSec 2 -UseBasicParsing
+                $health = Invoke-WebRequest "$base/api/health" -TimeoutSec 2 -UseBasicParsing
                 if ($health.StatusCode -eq 200 -and $health.Content.Trim() -eq 'ok') { $ready = $true; break }
               } catch { }
               Start-Sleep -Milliseconds 400
             }
-            if (-not $ready) { throw 'SleepyMusic backend did not become ready.' }
-            $status = Invoke-WebRequest 'http://127.0.0.1:17893/api/status' -UseBasicParsing
+            if (-not $ready) { throw 'SleepyMusic backend did not become ready on port 17894.' }
+            $status = Invoke-WebRequest "$base/api/status" -UseBasicParsing
             if ($status.Content -notmatch 'SleepyMusic') { throw 'Status endpoint failed.' }
-            $library = Invoke-WebRequest 'http://127.0.0.1:17893/api/library' -UseBasicParsing
-            $null = $library.Content | ConvertFrom-Json
-            $page = Invoke-WebRequest 'http://127.0.0.1:17893/' -UseBasicParsing
-            if ($page.Content -notmatch 'SleepyMusic 1.0.0') { throw 'UI route failed.' }
+            $library = Invoke-WebRequest "$base/api/library" -UseBasicParsing
+            $snapshot = $library.Content | ConvertFrom-Json
+            if ($null -eq $snapshot.tracks) { throw 'Library snapshot shape is missing tracks.' }
+            $folderFallback = Invoke-WebRequest "$base/api/library/add-folder" -Method Post -ContentType 'application/json' -Body '{}' -UseBasicParsing
+            $null = $folderFallback.Content | ConvertFrom-Json
+            $fileFallback = Invoke-WebRequest "$base/api/library/add-files" -Method Post -ContentType 'application/json' -Body '{}' -UseBasicParsing
+            $null = $fileFallback.Content | ConvertFrom-Json
+            $page = Invoke-WebRequest "$base/" -UseBasicParsing
+            if ($page.Content -notmatch 'SleepyMusic 1.0.0' -or $page.Content -notmatch 'pick-folder') { throw 'Final UI route is not the fixed UI.' }
+            $edgeCandidates = @(
+              "$env:ProgramFiles (x86)\Microsoft\Edge\Application\msedge.exe",
+              "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe"
+            )
+            $edge = $edgeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if ($edge) {
+              $dom = & $edge --headless --disable-gpu --no-first-run --dump-dom "$base/" 2>$null
+              if (($dom -join "`n") -notmatch 'data-sleepy-ui-ready="1"') { throw 'SleepyMusic UI JavaScript did not execute in Chromium.' }
+            }
           }
           finally {
             if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
@@ -72,6 +109,6 @@ jobs:
       - name: Upload compiled SleepyMusic
         uses: actions/upload-artifact@v4
         with:
-          name: SleepyMusic-1.0.0-Windows-x64
+          name: SleepyMusic-1.0.0-Windows-x64-Fixed
           path: sleepymusic-dist/
           if-no-files-found: error
