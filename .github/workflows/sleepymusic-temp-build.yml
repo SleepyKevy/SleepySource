@@ -1,4 +1,4 @@
-name: SleepyMusic Temporary Windows Build
+name: SleepyMusic Native Audio Windows Build
 
 on:
   pull_request:
@@ -22,28 +22,28 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      - name: Apply exact SleepyMusic fixed source payload
+      - name: Reconstruct file-add-fixed source and apply native audio overlay
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $parts = Get-ChildItem '_sleepymusic_build/fix_chunks/part*' | Sort-Object Name
-          if ($parts.Count -ne 7) { throw "Expected 7 payload chunks, found $($parts.Count)." }
+          if ($parts.Count -ne 7) { throw "Expected 7 base payload chunks, found $($parts.Count)." }
           $payload = ($parts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
           [IO.File]::WriteAllBytes('_sleepymusic_build/fix_payload.zip', [Convert]::FromBase64String($payload))
-          Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $zip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path '_sleepymusic_build/fix_payload.zip'))
-          try {
-            $names = $zip.Entries | ForEach-Object FullName
-            foreach ($required in @('MainForm.cs','BackendHost.cs','LibraryService.cs','web/index.html','SleepyMusic.csproj')) {
-              if ($names -notcontains $required) { throw "Reconstructed payload is missing $required" }
-            }
-          } finally { $zip.Dispose() }
           Expand-Archive '_sleepymusic_build/fix_payload.zip' '_sleepymusic_build/CSharpHost' -Force
           New-Item -ItemType Directory -Force '_sleepymusic_build/CSharpHost/assets' | Out-Null
           Copy-Item 'CSharpHost/assets/app.ico' '_sleepymusic_build/CSharpHost/assets/app.ico' -Force
           & '_sleepymusic_build/native_response_fix.ps1'
 
-      - name: Verify UI and native picker contracts
+          $overlayText = Get-Content '_sleepymusic_build/native_audio_overlay.b64' -Raw
+          [IO.File]::WriteAllBytes('_sleepymusic_build/native_audio_overlay.zip', [Convert]::FromBase64String($overlayText.Trim()))
+          Expand-Archive '_sleepymusic_build/native_audio_overlay.zip' '_sleepymusic_build/CSharpHost' -Force
+
+          foreach ($required in @('AudioEngine.cs','MainForm.cs','BackendHost.cs','LibraryService.cs','web/index.html','SleepyMusic.csproj')) {
+            if (-not (Test-Path (Join-Path '_sleepymusic_build/CSharpHost' $required))) { throw "Final source is missing $required" }
+          }
+
+      - name: Verify native audio and file-add contracts
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -51,19 +51,26 @@ jobs:
           $form = Get-Content '_sleepymusic_build/CSharpHost/MainForm.cs' -Raw
           $backend = Get-Content '_sleepymusic_build/CSharpHost/BackendHost.cs' -Raw
           $library = Get-Content '_sleepymusic_build/CSharpHost/LibraryService.cs' -Raw
-          foreach ($needle in @('pick-folder','pick-files','sleepyNativeResult','result?.request_id','sleepyUiReady')) {
-            if (-not $ui.Contains($needle)) { throw "UI native bridge contract missing: $needle" }
+          $engine = Get-Content '_sleepymusic_build/CSharpHost/AudioEngine.cs' -Raw
+          $project = Get-Content '_sleepymusic_build/CSharpHost/SleepyMusic.csproj' -Raw
+
+          foreach ($needle in @('pick-folder','pick-files','result?.request_id','player-load','player-play','player-pause','player-seek','player-volume','sleepyNativePlayerState')) {
+            if (-not $ui.Contains($needle)) { throw "UI contract missing: $needle" }
           }
-          foreach ($needle in @('type=="pick-folder"','type=="pick-files"','IsScriptEnabled=true','SendNativeResultAsync','["requestId"] = requestId','AddFilesFromHostAsync(files)')) {
-            if (-not $form.Contains($needle)) { throw "C# WebView2 bridge contract missing: $needle" }
+          if ($ui.Contains("audio.src='/api/audio/")) { throw 'UI is still using browser/localhost audio playback.' }
+          foreach ($needle in @('AudioEngine audioEngine','type=="player-load"','audioEngine.Load','audioEngine.Play','audioEngine.Pause','audioEngine.Seek','audioEngine.SetVolume','PushPlayerStateAsync')) {
+            if (-not $form.Contains($needle)) { throw "C# native audio bridge missing: $needle" }
           }
-          foreach ($needle in @('library.AddFiles(picked)','return await library.ScanAsync()')) {
-            if (-not $backend.Contains($needle)) { throw "Backend file-add contract missing: $needle" }
+          foreach ($needle in @('MediaFoundationReader','WaveOutEvent','DesiredLatency = 100','NumberOfBuffers = 3')) {
+            if (-not $engine.Contains($needle)) { throw "Native AudioEngine contract missing: $needle" }
           }
+          if (-not $project.Contains('Include="NAudio" Version="2.3.0"')) { throw 'NAudio 2.3.0 package is missing.' }
           foreach ($needle in @('data.Files.Add(full)','foreach (var file in standalone)','Supported.Contains(Path.GetExtension(file))')) {
-            if (-not $library.Contains($needle)) { throw "Library standalone-file contract missing: $needle" }
+            if (-not $library.Contains($needle)) { throw "Standalone file-add contract missing: $needle" }
           }
           if (-not $backend.Contains('public const int Port = 17894;')) { throw 'Backend/UI port contract is not 17894.' }
+          if (-not $backend.Contains('GetTrack(string id)')) { throw 'Backend track lookup for native playback is missing.' }
+
           $match = [regex]::Match($ui, '<script>([\s\S]*?)</script>')
           if (-not $match.Success) { throw 'Could not extract SleepyMusic UI JavaScript.' }
           Set-Content -Path '_sleepymusic_build/ui-smoke.js' -Value $match.Groups[1].Value -Encoding utf8
@@ -105,7 +112,7 @@ jobs:
             $snapshot = $library.Content | ConvertFrom-Json
             if ($null -eq $snapshot.tracks) { throw 'Library snapshot shape is missing tracks.' }
             $page = Invoke-WebRequest "$base/" -UseBasicParsing
-            if ($page.Content -notmatch 'SleepyMusic 1.0.0' -or $page.Content -notmatch 'pick-files' -or $page.Content -notmatch 'request_id') { throw 'Final UI route is not the file-add fixed UI.' }
+            if ($page.Content -notmatch 'player-load' -or $page.Content -notmatch 'sleepyNativePlayerState') { throw 'Served UI is not the native-audio UI.' }
           }
           finally {
             if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
@@ -114,6 +121,6 @@ jobs:
       - name: Upload compiled SleepyMusic
         uses: actions/upload-artifact@v4
         with:
-          name: SleepyMusic-1.0.0-Windows-x64-FileAddFixed
+          name: SleepyMusic-1.0.0-Windows-x64-NativeAudio
           path: sleepymusic-dist/
           if-no-files-found: error
