@@ -1,4 +1,4 @@
-name: SleepyMusic Current PR Windows Build
+name: SleepyMusic Native Audio Windows Build
 
 on:
   pull_request:
@@ -40,7 +40,48 @@ jobs:
           Copy-Item 'CSharpHost/assets/theme-purple.png' "$app/assets/theme-purple.png" -Force
           Copy-Item 'CSharpHost/assets/theme-green.png' "$app/assets/theme-green.png" -Force
           Copy-Item 'CSharpHost/assets/theme-pink.png' "$app/assets/theme-pink.png" -Force
+          Copy-Item '_sleepymusic_build/AudioEngine.Wasapi.cs' "$app/AudioEngine.cs" -Force
           if (-not (Test-Path "$app/web/index.html")) { throw 'SleepyMusic UI was not reconstructed.' }
+
+          # The UI now uses a JavaScript state shim connected to the native C# player.
+          # Remove the obsolete hidden browser media element so WebView2 cannot become the audio output path.
+          $ui = Get-Content "$app/web/index.html" -Raw
+          $ui = $ui.Replace('<audio id="audio" preload="metadata"></audio>', '')
+          Set-Content "$app/web/index.html" $ui -Encoding utf8
+
+      - name: Verify native audio contracts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $app = '_sleepymusic_build/current/SleepyMusic'
+          $project = Get-Content "$app/SleepyMusic.csproj" -Raw
+          $audio = Get-Content "$app/AudioEngine.cs" -Raw
+          $form = Get-Content "$app/MainForm.cs" -Raw
+          $library = Get-Content "$app/LibraryService.cs" -Raw
+          $ui = Get-Content "$app/web/index.html" -Raw
+
+          foreach ($needle in @('PackageReference Include="NAudio" Version="2.3.0"','PackageReference Include="TagLibSharp" Version="2.3.0"')) {
+            if (-not $project.Contains($needle)) { throw "Project contract missing: $needle" }
+          }
+          foreach ($needle in @('new MediaFoundationReader(path)','new WasapiOut()','PlaybackStopped','SetVolume','SeekUnsafe')) {
+            if (-not $audio.Contains($needle)) { throw "Native audio engine contract missing: $needle" }
+          }
+          foreach ($needle in @('AudioEngine audioEngine','type=="player-load"','type=="player-play"','type=="player-pause"','type=="player-seek"','type=="player-volume"','PushPlayerStateAsync')) {
+            if (-not $form.Contains($needle)) { throw "WebView2/C# playback bridge missing: $needle" }
+          }
+          foreach ($needle in @('AddFiles','data.Files','requestId')) {
+            if (-not (($library + $form + $ui).Contains($needle))) { throw "File-add regression contract missing: $needle" }
+          }
+          foreach ($needle in @('nativePlayer','player-load','sleepyNativePlayerState','sleepyNativePlayerEnded','result?.requestId||result?.request_id')) {
+            if (-not $ui.Contains($needle)) { throw "Native-player UI contract missing: $needle" }
+          }
+          if ($ui.Contains('<audio')) { throw 'Browser audio element is still present.' }
+          if ($ui.Contains('/api/audio/')) { throw 'UI is still routing playback through the localhost audio endpoint.' }
+
+          $match = [regex]::Match($ui, '<script>([\s\S]*?)</script>')
+          if (-not $match.Success) { throw 'Could not extract SleepyMusic UI JavaScript.' }
+          Set-Content '_sleepymusic_build/native-audio-ui.js' $match.Groups[1].Value -Encoding utf8
+          node --check '_sleepymusic_build/native-audio-ui.js'
 
       - name: Restore and publish Windows x64
         shell: pwsh
@@ -55,6 +96,12 @@ jobs:
           foreach ($asset in @('default.png','theme-red.png','theme-purple.png','theme-green.png','theme-pink.png','app.ico')) {
             if (-not (Test-Path "sleepymusic-dist/assets/$asset")) { throw "Published asset missing: $asset" }
           }
+          $publishedUi = Get-Content 'sleepymusic-dist/web/index.html' -Raw
+          if ($publishedUi.Contains('<audio') -or $publishedUi.Contains('/api/audio/')) { throw 'Published UI regressed to browser playback.' }
+          Add-Type -AssemblyName System.Drawing
+          $embeddedIcon = [System.Drawing.Icon]::ExtractAssociatedIcon((Resolve-Path 'sleepymusic-dist/SleepyMusic.exe').Path)
+          if ($null -eq $embeddedIcon) { throw 'SleepyMusic.exe has no embedded icon.' }
+          $embeddedIcon.Dispose()
 
       - name: Runtime API smoke test
         shell: pwsh
@@ -75,9 +122,10 @@ jobs:
             $status = Invoke-WebRequest 'http://127.0.0.1:17894/api/status' -TimeoutSec 5 -UseBasicParsing
             if ($status.Content -notmatch 'SleepyMusic') { throw 'Status endpoint failed.' }
             $library = Invoke-WebRequest 'http://127.0.0.1:17894/api/library' -TimeoutSec 5 -UseBasicParsing
-            $null = $library.Content | ConvertFrom-Json
+            $snapshot = $library.Content | ConvertFrom-Json
+            if ($null -eq $snapshot.tracks) { throw 'Library snapshot is missing tracks.' }
             $home = Invoke-WebRequest 'http://127.0.0.1:17894/' -TimeoutSec 5 -UseBasicParsing
-            if ($home.Content -notmatch 'SleepyMusic 1.0.0') { throw 'UI route failed.' }
+            if ($home.Content -notmatch 'SleepyMusic 1.0.0' -or $home.Content -match '<audio') { throw 'Native-audio UI route failed.' }
           }
           finally {
             if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
@@ -86,6 +134,6 @@ jobs:
       - name: Upload compiled SleepyMusic
         uses: actions/upload-artifact@v4
         with:
-          name: SleepyMusic-1.0.0-Windows-x64-current
+          name: SleepyMusic-1.0.0-Windows-x64-NativeAudio
           path: sleepymusic-dist/
           if-no-files-found: error
