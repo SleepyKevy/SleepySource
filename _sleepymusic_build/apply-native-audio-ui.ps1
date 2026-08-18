@@ -5,10 +5,8 @@ $backendPath = Join-Path $app 'BackendHost.cs'
 
 $ui = Get-Content $uiPath -Raw
 
-$oldAudioElement = '<div class="toast" id="toast"></div><audio id="audio" preload="metadata"></audio>'
-$newAudioElement = '<div class="toast" id="toast"></div>'
-if (-not $ui.Contains($oldAudioElement) -and -not $ui.Contains($newAudioElement)) { throw 'Unexpected SleepyMusic player markup.' }
-$ui = $ui.Replace($oldAudioElement, $newAudioElement)
+# Remove the old browser media element regardless of attribute order/whitespace.
+$ui = [regex]::Replace($ui, '<audio\b[^>]*>\s*</audio>', '', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
 
 $oldAudioInit = "const `$=s=>document.querySelector(s),`$`$=s=>[...document.querySelectorAll(s)];const audio=`$('#audio');let lib={tracks:[],favorites:[],recent_track_ids:[],playlists:[],folders:[],files:[],settings:{theme:'blue',volume:.8,shuffle:false,repeat:'off'}};let view='home',queue=[],queuePos=-1,current=null,filter=null,saveTimer=null;"
 $newAudioInit = "const `$=s=>document.querySelector(s),`$`$=s=>[...document.querySelectorAll(s)];const nativePlayer={paused:true,currentTime:0,duration:0,volume:.8,trackId:null};const audio={get paused(){return nativePlayer.paused},get currentTime(){return nativePlayer.currentTime},set currentTime(v){nativePlayer.currentTime=Number(v)||0;playerPost('player-seek',{seconds:nativePlayer.currentTime})},get duration(){return nativePlayer.duration},get volume(){return nativePlayer.volume},set volume(v){nativePlayer.volume=Math.max(0,Math.min(1,Number(v)||0));playerPost('player-volume',{value:nativePlayer.volume})},play(){nativePlayer.paused=false;playerPost('player-play');audio.onplay?.();return Promise.resolve()},pause(){nativePlayer.paused=true;playerPost('player-pause');audio.onpause?.()},ontimeupdate:null,onloadedmetadata:null,onplay:null,onpause:null,onended:null,onerror:null};function playerPost(type,extra={}){if(window.chrome?.webview?.postMessage)window.chrome.webview.postMessage({type,...extra})}let lib={tracks:[],favorites:[],recent_track_ids:[],playlists:[],folders:[],files:[],settings:{theme:'blue',volume:.8,shuffle:false,repeat:'off'}};let view='home',queue=[],queuePos=-1,current=null,filter=null,saveTimer=null;"
