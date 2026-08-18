@@ -83,7 +83,7 @@ internal sealed class LibraryService
     private static MusicTrack ReadTrack(string path)
     {
         var info=new FileInfo(path); var title=Path.GetFileNameWithoutExtension(path); var artist="Unknown Artist"; var album="Unknown Album"; uint? year=null; var genre="";
-        try { var result=MediaFile.Read(path); if(result.IsSuccess&&result.Tag is { } tag) { if(!string.IsNullOrWhiteSpace(tag.Title))title=tag.Title.Trim(); if(!string.IsNullOrWhiteSpace(tag.Artist))artist=tag.Artist.Trim(); if(!string.IsNullOrWhiteSpace(tag.Album))album=tag.Album.Trim(); if(tag.Year>0)year=tag.Year; if(!string.IsNullOrWhiteSpace(tag.Genre))genre=tag.Genre.Trim(); } } catch { }
+        try { var result=MediaFile.Read(path); if(result.IsSuccess&&result.Tag is { } tag) { if(!string.IsNullOrWhiteSpace(tag.Title))title=tag.Title.Trim(); if(!string.IsNullOrWhiteSpace(tag.Artist))artist=tag.Artist.Trim(); if(!string.IsNullOrWhiteSpace(tag.Album))album=tag.Album.Trim(); if(uint.TryParse(tag.Year,out var parsedYear)&&parsedYear>0)year=parsedYear; if(!string.IsNullOrWhiteSpace(tag.Genre))genre=tag.Genre.Trim(); } } catch { }
         return new MusicTrack { Id=StableId(path),Path=Path.GetFullPath(path),FileName=info.Name,Title=title,Artist=artist,Album=album,Year=year,Genre=genre,SizeBytes=info.Length,ModifiedUtc=info.LastWriteTimeUtc,Extension=info.Extension.TrimStart('.').ToUpperInvariant() };
     }
     private static string StableId(string path) { var hash=SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(path).ToUpperInvariant())); return Convert.ToHexString(hash.AsSpan(0,12)).ToLowerInvariant(); }
