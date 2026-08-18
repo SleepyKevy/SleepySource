@@ -133,7 +133,8 @@ jobs:
           if ($source.Contains('ShowBalloonTip(')) { throw 'Balloon tray notifications should not be used.' }
           if (-not $source.Contains('private const int WM_CLOSE = 0x0010')) { throw 'WM_CLOSE interception is missing.' }
           if (-not $source.Contains('GracefulExitBudgetMs = 500')) { throw '500 ms exit watchdog is missing.' }
-          if (-not $source.Contains('Kill(entireProcessTree: true)')) { throw 'Process-tree termination fallback is missing.' }
+          if ($source.Contains('Kill(entireProcessTree: true)')) { throw 'Exit watchdog must terminate SleepySource directly instead of waiting on the WebView2 process tree.' }
+          if (-not $source.Contains('private static void ForceProcessExit() => Environment.Exit(0);')) { throw 'Direct 500 ms SleepySource exit fallback is missing.' }
           if (-not $source.Contains('OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000)')) { throw 'Windows 11 title-bar guard is missing.' }
           if (-not $source.Contains('DWMWA_CAPTION_COLOR = 35')) { throw 'Native title-bar caption color is missing.' }
           if (-not $source.Contains('DWMWA_TEXT_COLOR = 36')) { throw 'Native title-bar text color is missing.' }
