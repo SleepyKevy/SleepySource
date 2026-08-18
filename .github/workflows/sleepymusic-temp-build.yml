@@ -35,8 +35,18 @@ jobs:
           Copy-Item 'CSharpHost/assets/app.ico' '_sleepymusic_build/CSharpHost/assets/app.ico' -Force
           & '_sleepymusic_build/native_response_fix.ps1'
 
-          $overlayText = Get-Content '_sleepymusic_build/native_audio_overlay.b64' -Raw
-          [IO.File]::WriteAllBytes('_sleepymusic_build/native_audio_overlay.zip', [Convert]::FromBase64String($overlayText.Trim()))
+          $overlayParts = Get-ChildItem '_sleepymusic_build/native_audio_chunks/part*' | Sort-Object Name
+          if ($overlayParts.Count -ne 5) { throw "Expected 5 native audio overlay chunks, found $($overlayParts.Count)." }
+          $overlayText = ($overlayParts | ForEach-Object { Get-Content $_.FullName -Raw }) -join ''
+          [IO.File]::WriteAllBytes('_sleepymusic_build/native_audio_overlay.zip', [Convert]::FromBase64String($overlayText))
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $overlayZip = [IO.Compression.ZipFile]::OpenRead((Resolve-Path '_sleepymusic_build/native_audio_overlay.zip'))
+          try {
+            $overlayNames = $overlayZip.Entries | ForEach-Object FullName
+            foreach ($required in @('AudioEngine.cs','MainForm.cs','BackendHost.cs','web/index.html','SleepyMusic.csproj')) {
+              if ($overlayNames -notcontains $required) { throw "Native audio overlay is missing $required" }
+            }
+          } finally { $overlayZip.Dispose() }
           Expand-Archive '_sleepymusic_build/native_audio_overlay.zip' '_sleepymusic_build/CSharpHost' -Force
 
           foreach ($required in @('AudioEngine.cs','MainForm.cs','BackendHost.cs','LibraryService.cs','web/index.html','SleepyMusic.csproj')) {
