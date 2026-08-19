@@ -118,20 +118,40 @@ jobs:
             release-dist/SleepySource_1.0.0_Source.zip
           if-no-files-found: error
 
-      - name: Create GitHub v1.0.0 release
+      - name: Publish or refresh GitHub v1.0.0 release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $ErrorActionPreference = 'Stop'
-          & gh release create 'v1.0.0' `
-            'release-dist/SleepySource_1.0.0.zip' `
-            'release-dist/SleepySource_1.0.0_Source.zip' `
-            --repo $env:GITHUB_REPOSITORY `
-            --target $env:GITHUB_SHA `
-            --title 'SleepySource 1.0.0' `
-            --notes-file 'release_notes.txt'
-          if ($LASTEXITCODE -ne 0) { throw 'GitHub v1.0.0 release creation failed.' }
+          & gh release view 'v1.0.0' --repo $env:GITHUB_REPOSITORY *> $null
+          $releaseExists = ($LASTEXITCODE -eq 0)
+
+          if ($releaseExists) {
+            & gh release upload 'v1.0.0' `
+              'release-dist/SleepySource_1.0.0.zip' `
+              'release-dist/SleepySource_1.0.0_Source.zip' `
+              --clobber `
+              --repo $env:GITHUB_REPOSITORY
+            if ($LASTEXITCODE -ne 0) { throw 'GitHub v1.0.0 release asset refresh failed.' }
+
+            & gh release edit 'v1.0.0' `
+              --repo $env:GITHUB_REPOSITORY `
+              --target $env:GITHUB_SHA `
+              --title 'SleepySource 1.0.0' `
+              --notes-file 'release_notes.txt'
+            if ($LASTEXITCODE -ne 0) { throw 'GitHub v1.0.0 release metadata refresh failed.' }
+          }
+          else {
+            & gh release create 'v1.0.0' `
+              'release-dist/SleepySource_1.0.0.zip' `
+              'release-dist/SleepySource_1.0.0_Source.zip' `
+              --repo $env:GITHUB_REPOSITORY `
+              --target $env:GITHUB_SHA `
+              --title 'SleepySource 1.0.0' `
+              --notes-file 'release_notes.txt'
+            if ($LASTEXITCODE -ne 0) { throw 'GitHub v1.0.0 release creation failed.' }
+          }
 
       - name: Publish release result commit status
         if: always()
