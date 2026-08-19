@@ -7,21 +7,46 @@ on:
 
 permissions:
   contents: read
+  actions: read
   statuses: write
 
 jobs:
   marker:
     runs-on: ubuntu-latest
     steps:
-      - name: Publish marker run URL
+      - name: Publish marker and import run URLs
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          MARKER_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
             -f state='success' \
             -f context='sleepysource/import-marker' \
             -f description='Import diagnostic marker.' \
-            -f target_url="$RUN_URL" >/dev/null
+            -f target_url="$MARKER_URL" >/dev/null
+
+          IMPORT_ID=''
+          IMPORT_STATUS='unknown'
+          IMPORT_CONCLUSION=''
+          for i in $(seq 1 30); do
+            ROW="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow 'import-fresh-v1.0.0.yml' --branch 'agent/import-fresh-v1.0.0' --limit 10 --json databaseId,headSha,status,conclusion --jq ".[] | select(.headSha == \"$GITHUB_SHA\") | [.databaseId,.status,(.conclusion // \"\")] | @tsv" | head -n1)"
+            if [ -n "$ROW" ]; then
+              IFS=$'\t' read -r IMPORT_ID IMPORT_STATUS IMPORT_CONCLUSION <<< "$ROW"
+              break
+            fi
+            sleep 2
+          done
+          if [ -z "$IMPORT_ID" ]; then
+            echo 'Could not resolve import run ID.' >&2
+            exit 1
+          fi
+          IMPORT_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$IMPORT_ID"
+          DESC="Import run: $IMPORT_STATUS"
+          if [ -n "$IMPORT_CONCLUSION" ]; then DESC="$DESC/$IMPORT_CONCLUSION"; fi
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state='success' \
+            -f context='sleepysource/import-run' \
+            -f description="$DESC" \
+            -f target_url="$IMPORT_URL" >/dev/null
