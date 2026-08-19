@@ -273,12 +273,12 @@ async function handleOAuthStart(request, env) {
 
 async function handleKickConnectPage(request, env, url) {
   if (request.method !== "GET") {
-    return htmlMessage("SleepySource", "Invalid connection request.", false, 405);
+    return htmlMessage("SleepyServices", "Invalid connection request.", false, 405);
   }
 
   if (!isConfigured(env)) {
     return htmlMessage(
-      "SleepySource is not ready",
+      "SleepyServices is not ready",
       "The hosted Kick connection service is not configured correctly.",
       false,
       500
@@ -289,7 +289,7 @@ async function handleKickConnectPage(request, env, url) {
   if (!sessionId) {
     return htmlMessage(
       "Connection link is incomplete",
-      "Return to SleepySource and choose Connect with Kick again.",
+      "Return to the app and choose Connect with Kick again.",
       false,
       400
     );
@@ -318,7 +318,7 @@ async function handleKickConnectPage(request, env, url) {
     if (!session) {
       return htmlMessage(
         "Connection link expired",
-        "This SleepySource connection link is no longer valid. Return to the app and try again.",
+        "This connection connection link is no longer valid. Return to the app and try again.",
         false,
         400
       );
@@ -327,7 +327,7 @@ async function handleKickConnectPage(request, env, url) {
     if (session.status === "completed") {
       return htmlMessage(
         "Kick already connected",
-        "This authorization has already completed. You can close this window and return to SleepySource.",
+        "This authorization has already completed. You can close this window and Return to the app.",
         true,
         200
       );
@@ -336,7 +336,7 @@ async function handleKickConnectPage(request, env, url) {
     if (session.status === "processing") {
       return htmlMessage(
         "Finishing your connection",
-        "Kick approval was received and SleepySource is finishing the secure connection. Return to SleepySource in a moment.",
+        "Kick approval was received and the secure connection is being finalized. Return to the app in a moment.",
         true,
         200
       );
@@ -345,7 +345,7 @@ async function handleKickConnectPage(request, env, url) {
     if (session.status === "failed") {
       return htmlMessage(
         "Connection needs another try",
-        "This authorization attempt could not be completed. Return to SleepySource and choose Connect with Kick again.",
+        "This authorization attempt could not be completed. Return to the app and choose Connect with Kick again.",
         false,
         400
       );
@@ -357,7 +357,7 @@ async function handleKickConnectPage(request, env, url) {
       }
       return htmlMessage(
         "Connection link expired",
-        "Return to SleepySource and choose Connect with Kick again.",
+        "Return to the app and choose Connect with Kick again.",
         false,
         400
       );
@@ -369,7 +369,7 @@ async function handleKickConnectPage(request, env, url) {
       await markSessionFailed(env, session.session_id, "invalid_session_state");
       return htmlMessage(
         "Connection could not start",
-        "SleepySource could not prepare this authorization session. Return to the app and try again.",
+        "SleepyServices could not prepare this authorization session. Return to the app and try again.",
         false,
         500
       );
@@ -383,7 +383,7 @@ async function handleKickConnectPage(request, env, url) {
     console.error("Kick connect page failed:", safeErrorMessage(error));
     return htmlMessage(
       "Connection page unavailable",
-      "SleepySource could not open the secure Kick connection page. Return to the app and try again.",
+      "SleepyServices could not open the secure Kick connection page. Return to the app and try again.",
       false,
       500
     );
@@ -545,13 +545,13 @@ async function handleOAuthStatus(request, env) {
 
 async function handleOAuthCallback(request, env, url) {
   if (request.method !== "GET") {
-    return htmlMessage("SleepySource", "Invalid OAuth request.", false, 405);
+    return htmlMessage("SleepyServices", "Invalid OAuth request.", false, 405);
   }
 
   if (!isConfigured(env)) {
     return htmlMessage(
-      "SleepySource",
-      "SleepySource authentication is not configured correctly.",
+      "SleepyServices",
+      "SleepyServices authentication is not configured correctly.",
       false,
       500
     );
@@ -563,7 +563,7 @@ async function handleOAuthCallback(request, env, url) {
     console.error("Schema setup failed:", safeErrorMessage(error));
     return htmlMessage(
       "Kick connection failed",
-      "SleepySource could not prepare its connection store.",
+      "SleepyServices could not prepare its connection store.",
       false,
       500
     );
@@ -597,7 +597,7 @@ async function handleOAuthCallback(request, env, url) {
 
     return htmlMessage(
       "Kick connection cancelled",
-      "Kick was not connected to SleepySource.",
+      "Kick was not connected through SleepyServices.",
       false,
       400
     );
@@ -605,7 +605,7 @@ async function handleOAuthCallback(request, env, url) {
 
   if (!code || !state) {
     return htmlMessage(
-      "SleepySource",
+      "SleepyServices",
       "The Kick authorization response was incomplete.",
       false,
       400
@@ -657,7 +657,7 @@ async function handleOAuthCallback(request, env, url) {
 
       return htmlMessage(
         "Connection expired",
-        "This Kick connection attempt expired. Return to SleepySource and try again.",
+        "This Kick connection attempt expired. Return to the app and try again.",
         false,
         400
       );
@@ -709,7 +709,7 @@ async function handleOAuthCallback(request, env, url) {
 
       return htmlMessage(
         "Kick connection failed",
-        "Kick could not complete the authorization. Return to SleepySource and try again.",
+        "Kick could not complete the authorization. Return to the app and try again.",
         false,
         400
       );
@@ -742,7 +742,7 @@ async function handleOAuthCallback(request, env, url) {
 
       return htmlMessage(
         "Kick connection failed",
-        "SleepySource could not identify the authorized Kick account.",
+        "SleepyServices could not identify the authorized Kick account.",
         false,
         500
       );
@@ -860,7 +860,7 @@ async function handleOAuthCallback(request, env, url) {
 
     return htmlMessage(
       "Kick connected",
-      `Kick account ${String(kickUser.name)} is now securely connected to SleepySource.`,
+      `Kick account ${String(kickUser.name)} is now securely connected through SleepyServices.`,
       true,
       200
     );
@@ -880,7 +880,7 @@ async function handleOAuthCallback(request, env, url) {
 
     return htmlMessage(
       "Kick connection failed",
-      "SleepySource could not complete the connection. Return to SleepySource and try again.",
+      "SleepyServices could not complete the connection. Return to the app and try again.",
       false,
       500
     );
@@ -3546,18 +3546,18 @@ function kickConnectPage(authorizeUrl, remainingSeconds) {
   const safeAuthorizeUrl = escapeHtml(authorizeUrl);
   const minutes = Math.max(1, Math.ceil(Number(remainingSeconds || 0) / 60));
   return htmlPage(
-    "Connect Kick to SleepySource",
+    "Connect with Kick",
     `
       <div class="eyebrow">SECURE KICK CONNECTION</div>
       <h1>Connect your Kick account</h1>
-      <p class="lead">SleepySource is ready to open Kick so you can approve the connection.</p>
+      <p class="lead">Continue to Kick to securely approve the connection.</p>
       <div class="permission-box">
         <div><span class="dot"></span><span>Read your Kick account and channel</span></div>
         <div><span class="dot"></span><span>Manage stream title and category</span></div>
         <div><span class="dot"></span><span>Receive chat, follow, subscription, KICKs, and reward events</span></div>
       </div>
-      <a class="primary-button" href="${safeAuthorizeUrl}">Continue with Kick <span>→</span></a>
-      <p class="privacy-note">Your Kick password is entered only on Kick. SleepySource never asks for it or stores it.</p>
+      <a class="primary-button" href="${safeAuthorizeUrl}">"Connect with Kick.<span>→</span></a>
+      <p class="privacy-note">Your Kick password is entered only on Kick. SleepyServices never asks for it or stores it.</p>
       <div class="session-note">This secure connection link expires in about ${minutes} minute${minutes === 1 ? "" : "s"}.</div>
     `,
     200
@@ -3575,7 +3575,7 @@ function htmlMessage(title, message, success, status) {
       <div class="status-icon ${stateClass}">${symbol}</div>
       <h1>${safeTitle}</h1>
       <p class="lead">${safeMessage}</p>
-      <div class="session-note">You can close this window and return to SleepySource.</div>
+      <div class="session-note">You can close this window and Return to the app.</div>
     `,
     status
   );
@@ -3590,7 +3590,7 @@ function htmlPage(title, content, status) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>${safeDocumentTitle} • SleepySource</title>
+<title>${safeDocumentTitle} • SleepyServices</title>
 <style>
 * { box-sizing: border-box; }
 html, body { min-height: 100%; }
@@ -3713,7 +3713,7 @@ h1 { margin: 0; font-size: clamp(28px, 6vw, 38px); line-height: 1.08; letter-spa
 <main class="wrap">
   <div class="brand">
     <img src="${SLEEPYSOURCE_LOGO_DATA_URI}" alt="SleepySource logo">
-    <div class="brand-copy"><strong>SleepySource</strong><span>CREATOR TOOLKIT</span></div>
+    <div class="brand-copy"><strong>SleepyServices</strong><span>SECURE CONNECTION</span></div>
   </div>
   <section class="card">${content}</section>
 </main>
