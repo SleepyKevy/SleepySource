@@ -1,0 +1,234 @@
+name: Finalize SleepySource 1.0.0 Fresh Import v2
+
+on:
+  push:
+    branches:
+      - agent/import-fresh-v1.0.0
+
+permissions:
+  contents: write
+  actions: read
+  statuses: write
+
+jobs:
+  finalize:
+    if: github.event.head_commit.message == 'Finalize fresh import v2'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Expose finalizer run
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state='pending' \
+            -f context='sleepysource/finalizer-v2-run' \
+            -f description='Fresh import finalizer is running.' \
+            -f target_url="$RUN_URL" >/dev/null
+
+      - name: Checkout transport branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download previous verified source package
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/old-artifact"
+          gh run download 32099329368 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name 'SleepySource-1.0.0-Release-Packages' \
+            --dir "$RUNNER_TEMP/old-artifact"
+          test -f "$RUNNER_TEMP/old-artifact/SleepySource_1.0.0_Source.zip"
+
+      - name: Reconstruct exact source tree including hidden files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/source-parent"
+          unzip -q "$RUNNER_TEMP/old-artifact/SleepySource_1.0.0_Source.zip" -d "$RUNNER_TEMP/source-parent"
+          SOURCE_ROOT="$RUNNER_TEMP/source-parent/SleepySource 1.0.0 Source"
+          test -d "$SOURCE_ROOT"
+          cat payload/source_patch_*.part > "$RUNNER_TEMP/source.patch"
+
+          python3 - "$SOURCE_ROOT" <<'PY'
+          from pathlib import Path
+          import sys
+          root = Path(sys.argv[1])
+          changed = [
+              '.github/workflows/publish-v1.0.0.yml',
+              'CSharpHost/SleepySourceApiService.cs',
+              'CSharpHost/web/index.html',
+              'CloudflareWorker/CLOUDFLARE_DEPLOY_README.txt',
+              'CloudflareWorker/DEPLOY.ps1',
+              'CloudflareWorker/DEPLOYMENT.md',
+              'CloudflareWorker/FINAL_AUTH_STATUS.txt',
+              'CloudflareWorker/worker.js',
+              'CloudflareWorker/wrangler.jsonc',
+              'VALIDATION.txt',
+              'readme.txt',
+              'release_notes.txt',
+          ]
+          for rel in changed:
+              p = root / rel
+              p.write_bytes(p.read_bytes().replace(b'\r\n', b'\n'))
+          PY
+
+          cd "$SOURCE_ROOT"
+          git apply --check "$RUNNER_TEMP/source.patch"
+          git apply "$RUNNER_TEMP/source.patch"
+          test "$(find . -type f | wc -l)" -eq 54
+          sha256sum -c "$GITHUB_WORKSPACE/payload/source_manifest.sha256"
+
+          INDEX_FILE="$RUNNER_TEMP/exact-source.index"
+          rm -f "$INDEX_FILE"
+          GIT_INDEX_FILE="$INDEX_FILE" git --git-dir="$GITHUB_WORKSPACE/.git" read-tree --empty
+          GIT_INDEX_FILE="$INDEX_FILE" git --git-dir="$GITHUB_WORKSPACE/.git" --work-tree="$SOURCE_ROOT" add -f -A
+          TREE_SHA="$(GIT_INDEX_FILE="$INDEX_FILE" git --git-dir="$GITHUB_WORKSPACE/.git" write-tree)"
+          test "$TREE_SHA" = 'a461ebf7409b8e0572781ede0881afc27f202257'
+          echo "SOURCE_ROOT=$SOURCE_ROOT" >> "$GITHUB_ENV"
+          echo "TREE_SHA=$TREE_SHA" >> "$GITHUB_ENV"
+          echo "Exact source tree verified: $TREE_SHA"
+
+      - name: Download exact smoke-tested public contents
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/public"
+          gh run download 32202277199 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name 'Fresh-SleepySource-Public' \
+            --dir "$RUNNER_TEMP/public"
+          PUBLIC_ROOT="$RUNNER_TEMP/public/SleepySource 1.0.0"
+          test -d "$PUBLIC_ROOT"
+          test "$(find "$PUBLIC_ROOT" -type f | wc -l)" -eq 26
+          (cd "$PUBLIC_ROOT" && sha256sum -c "$GITHUB_WORKSPACE/payload/public_manifest.sha256")
+          echo 'f82172ae55f74180ad99150d312a9b09ec418e29535a12b1eda582cef3cf8fc6  SleepySource.exe' | (cd "$PUBLIC_ROOT" && sha256sum -c -)
+          echo "PUBLIC_ROOT=$PUBLIC_ROOT" >> "$GITHUB_ENV"
+
+      - name: Create one clean exact source commit on main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          EXPECTED_MAIN='778027b42477e506ba55df2417dc6a86eca2ddf4'
+          CURRENT_MAIN="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          if [ "$CURRENT_MAIN" != "$EXPECTED_MAIN" ]; then
+            echo "main changed unexpectedly: $CURRENT_MAIN" >&2
+            exit 1
+          fi
+
+          export GIT_AUTHOR_NAME='SleepyKevy'
+          export GIT_AUTHOR_EMAIL='316921689+SleepyKevy@users.noreply.github.com'
+          export GIT_COMMITTER_NAME='SleepyKevy'
+          export GIT_COMMITTER_EMAIL='316921689+SleepyKevy@users.noreply.github.com'
+          NEW_SHA="$(printf '%s\n' 'Import SleepySource 1.0.0' | git commit-tree "$TREE_SHA" -p "$EXPECTED_MAIN")"
+          git push origin "$NEW_SHA:refs/heads/main"
+          echo "NEW_SHA=$NEW_SHA" >> "$GITHUB_ENV"
+          echo "Fresh main commit: $NEW_SHA"
+
+      - name: Build exact-content release ZIPs
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd "$RUNNER_TEMP/public" && zip -q -r -9 "$RUNNER_TEMP/SleepySource_1.0.0.zip" 'SleepySource 1.0.0')
+          unzip -t "$RUNNER_TEMP/SleepySource_1.0.0.zip" >/dev/null
+
+          mkdir -p "$RUNNER_TEMP/source-package"
+          cp -a "$SOURCE_ROOT" "$RUNNER_TEMP/source-package/SleepySource 1.0.0 Source"
+          (cd "$RUNNER_TEMP/source-package" && zip -q -r -9 "$RUNNER_TEMP/SleepySource_1.0.0_Source.zip" 'SleepySource 1.0.0 Source')
+          unzip -t "$RUNNER_TEMP/SleepySource_1.0.0_Source.zip" >/dev/null
+
+      - name: Replace v1.0.0 tag and release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v1.0.0" >/dev/null 2>&1; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/v1.0.0" -f sha="$NEW_SHA" -F force=true >/dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref='refs/tags/v1.0.0' -f sha="$NEW_SHA" >/dev/null
+          fi
+
+          if gh release view 'v1.0.0' --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            mapfile -t assets < <(gh release view 'v1.0.0' --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+            for asset in "${assets[@]}"; do
+              [ -n "$asset" ] && gh release delete-asset 'v1.0.0' "$asset" --repo "$GITHUB_REPOSITORY" -y
+            done
+            gh release upload 'v1.0.0' \
+              "$RUNNER_TEMP/SleepySource_1.0.0.zip" \
+              "$RUNNER_TEMP/SleepySource_1.0.0_Source.zip" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit 'v1.0.0' \
+              --repo "$GITHUB_REPOSITORY" \
+              --title 'SleepySource 1.0.0' \
+              --notes-file "$SOURCE_ROOT/release_notes.txt" \
+              --draft=false --prerelease=false
+          else
+            gh release create 'v1.0.0' \
+              "$RUNNER_TEMP/SleepySource_1.0.0.zip" \
+              "$RUNNER_TEMP/SleepySource_1.0.0_Source.zip" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$NEW_SHA" \
+              --title 'SleepySource 1.0.0' \
+              --notes-file "$SOURCE_ROOT/release_notes.txt"
+          fi
+
+      - name: Verify final repository tag and release downloads
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          TAG_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v1.0.0" --jq '.object.sha')"
+          test "$MAIN_SHA" = "$NEW_SHA"
+          test "$TAG_SHA" = "$NEW_SHA"
+
+          mkdir -p "$RUNNER_TEMP/verify-download"
+          gh release download 'v1.0.0' --repo "$GITHUB_REPOSITORY" \
+            --pattern 'SleepySource_1.0.0.zip' \
+            --pattern 'SleepySource_1.0.0_Source.zip' \
+            --dir "$RUNNER_TEMP/verify-download"
+
+          mkdir -p "$RUNNER_TEMP/verify-public" "$RUNNER_TEMP/verify-source"
+          unzip -q "$RUNNER_TEMP/verify-download/SleepySource_1.0.0.zip" -d "$RUNNER_TEMP/verify-public"
+          unzip -q "$RUNNER_TEMP/verify-download/SleepySource_1.0.0_Source.zip" -d "$RUNNER_TEMP/verify-source"
+          (cd "$RUNNER_TEMP/verify-public/SleepySource 1.0.0" && sha256sum -c "$GITHUB_WORKSPACE/payload/public_manifest.sha256")
+          (cd "$RUNNER_TEMP/verify-source/SleepySource 1.0.0 Source" && sha256sum -c "$GITHUB_WORKSPACE/payload/source_manifest.sha256")
+          test "$(find "$RUNNER_TEMP/verify-public/SleepySource 1.0.0" -type f | wc -l)" -eq 26
+          test "$(find "$RUNNER_TEMP/verify-source/SleepySource 1.0.0 Source" -type f | wc -l)" -eq 54
+          echo "SleepySource 1.0.0 repo and release fully verified at $NEW_SHA"
+
+      - name: Publish final status
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$NEW_SHA" \
+            -f state='success' \
+            -f context='sleepysource/fresh-import' \
+            -f description='Exact source and v1.0.0 release verified.' \
+            -f target_url="$RUN_URL" >/dev/null
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state='success' \
+            -f context='sleepysource/finalizer-v2-run' \
+            -f description='Fresh import finalizer completed.' \
+            -f target_url="$RUN_URL" >/dev/null
+
+      - name: Remove one-time transport branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push origin --delete agent/import-fresh-v1.0.0
