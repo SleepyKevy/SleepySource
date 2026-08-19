@@ -318,7 +318,7 @@ async function handleKickConnectPage(request, env, url) {
     if (!session) {
       return htmlMessage(
         "Connection link expired",
-        "This connection connection link is no longer valid. Return to the app and try again.",
+        "This connection link is no longer valid. Return to the app and try again.",
         false,
         400
       );
@@ -327,7 +327,7 @@ async function handleKickConnectPage(request, env, url) {
     if (session.status === "completed") {
       return htmlMessage(
         "Kick already connected",
-        "This authorization has already completed. You can close this window and Return to the app.",
+        "This authorization has already completed. You can close this window and return to the app.",
         true,
         200
       );
@@ -3556,7 +3556,7 @@ function kickConnectPage(authorizeUrl, remainingSeconds) {
         <div><span class="dot"></span><span>Manage stream title and category</span></div>
         <div><span class="dot"></span><span>Receive chat, follow, subscription, KICKs, and reward events</span></div>
       </div>
-      <a class="primary-button" href="${safeAuthorizeUrl}">"Connect with Kick.<span>→</span></a>
+      <a class="primary-button" href="${safeAuthorizeUrl}">Continue with Kick <span>→</span></a>
       <p class="privacy-note">Your Kick password is entered only on Kick. SleepyServices never asks for it or stores it.</p>
       <div class="session-note">This secure connection link expires in about ${minutes} minute${minutes === 1 ? "" : "s"}.</div>
     `,
@@ -3575,7 +3575,7 @@ function htmlMessage(title, message, success, status) {
       <div class="status-icon ${stateClass}">${symbol}</div>
       <h1>${safeTitle}</h1>
       <p class="lead">${safeMessage}</p>
-      <div class="session-note">You can close this window and Return to the app.</div>
+      <div class="session-note">You can close this window and return to the app.</div>
     `,
     status
   );
