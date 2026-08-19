@@ -1,0 +1,7 @@
+public_zip_sha256=1f3e7858ecdba91b288b4cedb5b865b21b96fbab3d7725913e95ae1f3eedb0d5
+public_zip_size=87470003
+exe_sha256=757fcb0a705bb582ed22ef607ac5c31ff3216dc39968d32d5cc058944c12af4a
+exe_size=214941403
+chunk_count=11
+source_commit=d6a38ea657a859285e8cc8f8c694e8d9bbc3378d
+verification=exact-source-manifest+windows-publish+runtime-smoke
