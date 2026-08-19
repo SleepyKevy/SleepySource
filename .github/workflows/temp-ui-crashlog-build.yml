@@ -3,7 +3,7 @@ name: Temp SleepySource UI Test CrashLog Build
 on:
   push:
     branches:
-      - disabled-temp-ui-test-crashlog-build
+      - temp-ui-test-crashlog-build
   pull_request:
     branches:
       - main
@@ -29,16 +29,18 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Path exact-src -Force | Out-Null
-          $parts = Get-ChildItem '.tmp-ui-crash-build\payload.*.b64' | Sort-Object Name
-          if ($parts.Count -ne 6) { throw "Expected 6 source payload parts, found $($parts.Count)." }
-          $b64 = ($parts | ForEach-Object { [IO.File]::ReadAllText($_.FullName) }) -join ''
+          $parts = Get-ChildItem '.tmp-ui-crash-build\v2.*' | Sort-Object Name
+          if ($parts.Count -ne 12) { throw "Expected 12 source payload parts, found $($parts.Count)." }
+          $b64 = ($parts | ForEach-Object { [IO.File]::ReadAllText($_.FullName).Trim() }) -join ''
           [IO.File]::WriteAllBytes('exact-src\CSharpHost.tar.xz', [Convert]::FromBase64String($b64))
           $hash = (Get-FileHash 'exact-src\CSharpHost.tar.xz' -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($hash -ne '07c9496d070a1cbed7fd510b2e0ef20836e3d845f6daff1cd0eb15f474e9d136') { throw "Source payload SHA-256 mismatch: $hash" }
+          if ($hash -ne '11ff1c6f35f35fafba6ca5c8319e71529d30a322d394dfc51e1f393b28d16b35') { throw "Source payload SHA-256 mismatch: $hash" }
           tar -xf 'exact-src\CSharpHost.tar.xz' -C exact-src
           if (-not (Test-Path 'exact-src\CSharpHost\SleepySource.csproj')) { throw 'Exact C# source did not extract correctly.' }
           Copy-Item 'CSharpHost\assets' 'exact-src\CSharpHost\assets' -Recurse -Force
+          Copy-Item 'CSharpHost\web' 'exact-src\CSharpHost\web' -Recurse -Force
           if (-not (Test-Path 'exact-src\CSharpHost\CrashLogService.cs')) { throw 'CrashLogService.cs is missing from exact source.' }
+          Write-Host "Verified exact source payload SHA-256: $hash"
 
       - name: Upload reconstructed source
         uses: actions/upload-artifact@v4
@@ -64,11 +66,12 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $proc = Start-Process -FilePath (Resolve-Path 'smoke-dist\SleepySource.exe') -ArgumentList '--smoke-test' -PassThru -Wait -WindowStyle Hidden
           if ($proc.ExitCode -ne 0) { throw "Compiled smoke test failed with exit code $($proc.ExitCode)." }
-          if (Test-Path 'smoke-dist\SleepySource_Data') { Remove-Item 'smoke-dist\SleepySource_Data' -Recurse -Force }
-          if (Test-Path 'smoke-dist\Logs') { Remove-Item 'smoke-dist\Logs' -Recurse -Force }
-          if (Get-ChildItem smoke-dist -Recurse -Filter *.xml -File -ErrorAction SilentlyContinue) { throw 'XML documentation files remain in build output.' }
           if (-not (Select-String -Path 'exact-src\CSharpHost\BackendHost.cs' -SimpleMatch '/api/system/crashes')) { throw 'Crash status API source marker missing.' }
           if (-not (Select-String -Path 'exact-src\CSharpHost\DiagnosticService.cs' -SimpleMatch 'crashes/')) { throw 'Diagnostic crash-log export source marker missing.' }
+          if (Test-Path 'smoke-dist\SleepySource_Data') { Remove-Item 'smoke-dist\SleepySource_Data' -Recurse -Force }
+          if (Test-Path 'smoke-dist\Logs') { Remove-Item 'smoke-dist\Logs' -Recurse -Force }
+          Get-ChildItem smoke-dist -Filter 'SleepySource_Crash_*.log' -File -ErrorAction SilentlyContinue | Remove-Item -Force
+          if (Get-ChildItem smoke-dist -Recurse -Filter *.xml -File -ErrorAction SilentlyContinue) { throw 'XML documentation files remain in build output.' }
           Write-Host 'SleepySource crash-log build and compiled smoke test passed.'
 
       - name: Upload smoke-tested Windows build
