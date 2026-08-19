@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - temp-ui-test-crashlog-build
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: read
