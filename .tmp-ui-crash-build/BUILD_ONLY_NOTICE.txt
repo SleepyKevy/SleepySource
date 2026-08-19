@@ -1,0 +1,1 @@
+Temporary build-only branch for compiling the SleepySource 1.0.0 UI Test crash logging build. Do not merge. This branch will be reset after the Windows build artifact is retrieved.
