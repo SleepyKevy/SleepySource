@@ -6,7 +6,7 @@ on:
       - temp-ui-test-crashlog-build
   pull_request:
     branches:
-      - temp-ui-test-crashlog-build
+      - main
 
 permissions:
   contents: read
