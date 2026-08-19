@@ -1,0 +1,180 @@
++    // developer application's current webhook URL. This is important after
++    // a webhook-domain migration or when Kick has silently stopped delivering
++    // an otherwise healthy-looking subscription.
++    if (removedSubscriptionIds.length > 0) {
++      const deleteResult = await deleteKickEventSubscriptions(
++        tokenResult.accessToken,
++        removedSubscriptionIds
++      );
++
++      if (!deleteResult.ok) {
++        return kickApiFailure(
++          "event_subscription_delete_failed",
++          deleteResult.status,
++          deleteResult.message
++        );
++      }
++    }
+ 
+     // Subscribe one event at a time. If Kick rejects one event type,
+     // the other required SleepySource events can still be activated.
+-    for (const event of beforeSummary.missing) {
++    for (const event of SLEEPYSOURCE_BASE_EVENTS) {
+       const createResult = await createKickEventSubscription(
+         tokenResult.accessToken,
+         event
+@@ -1226,6 +1257,8 @@ async function handleEventSubscriptionsSync(request, env) {
+         status: complete ? "subscribed" : "partial",
+         all_required_subscribed: complete,
+         refreshed: tokenResult.refreshed,
++        subscriptions_recreated: true,
++        removed_subscription_ids: removedSubscriptionIds,
+         attempted: attempts,
+         missing_events: afterSummary.missing,
+         subscriptions: after.map(publicSubscription),
+@@ -1554,6 +1587,31 @@ async function fetchKickEventSubscriptions(accessToken, broadcasterUserId) {
+   });
+ }
+ 
++async function deleteKickEventSubscriptions(accessToken, subscriptionIds) {
++  const ids = [...new Set(
++    (Array.isArray(subscriptionIds) ? subscriptionIds : [])
++      .map((value) => String(value || "").trim())
++      .filter(Boolean)
++  )];
++
++  if (ids.length === 0) {
++    return { ok: true, status: 204, data: null, message: null };
++  }
++
++  const url = new URL(KICK_EVENT_SUBSCRIPTIONS_URL);
++  for (const id of ids) {
++    url.searchParams.append("id", id);
++  }
++
++  return kickJsonRequest(url.toString(), {
++    method: "DELETE",
++    headers: {
++      Authorization: `Bearer ${accessToken}`,
++      Accept: "application/json",
++    },
++  });
++}
++
+ async function createKickEventSubscription(accessToken, event) {
+   return kickJsonRequest(KICK_EVENT_SUBSCRIPTIONS_URL, {
+     method: "POST",
+diff --git a/CloudflareWorker/wrangler.jsonc b/CloudflareWorker/wrangler.jsonc
+index a73f64e..15e6eb7 100644
+--- a/CloudflareWorker/wrangler.jsonc
++++ b/CloudflareWorker/wrangler.jsonc
+@@ -4,7 +4,6 @@
+   "main": "worker.js",
+   "compatibility_date": "2026-08-17",
+   "keep_vars": true,
+-
+   "d1_databases": [
+     {
+       "binding": "DB",
+@@ -12,7 +11,6 @@
+       "database_id": "506132fb-ed3d-4ffb-9e47-ad510050363a"
+     }
+   ],
+-
+   "durable_objects": {
+     "bindings": [
+       {
+@@ -21,11 +19,19 @@
+       }
+     ]
+   },
+-
+   "exports": {
+     "SleepySourceRealtime": {
+       "type": "durable-object",
+       "storage": "sqlite"
+     }
++  },
++  "observability": {
++    "enabled": true,
++    "logs": {
++      "enabled": true,
++      "invocation_logs": true,
++      "head_sampling_rate": 1,
++      "persist": true
++    }
+   }
+ }
+diff --git a/VALIDATION.txt b/VALIDATION.txt
+index 500381f..b7ee84a 100644
+--- a/VALIDATION.txt
++++ b/VALIDATION.txt
+@@ -23,6 +23,37 @@ CONNECTIONS / NAVIGATION
+ [PASS] Connections workspace activation/status-refresh logic remains wired.
+ [PASS] Opening Connections does not mark the Tools toggle active.
+ 
++SLEEPYSERVICES ENDPOINT MIGRATION
++----------------------------------
++[PASS] Active desktop API base is https://sleepysource-api.sleepyservices.workers.dev.
++[PASS] Active Cloudflare Worker health/webhook URLs use the sleepyservices subdomain.
++[PASS] Retired account endpoint text is absent from active source files.
++[PASS] Supplied SleepySource.exe was endpoint-patched without changing its file size,
++ bundle manifest layout, product version, or unsigned PE status.
++[PASS] Managed ldstr references and the public const ApiBase metadata value were
++ retargeted to the sleepyservices endpoint.
++[PASS] Release ZIP naming uses SleepySource_1.0.0.zip without a Public suffix.
++
++
++KICK EVENT DELIVERY REPAIR
++--------------------------
++[PASS] Event sync deletes only existing SleepySource-required subscription IDs.
++[PASS] Event sync recreates all required Kick events, including chat.message.sent.
++[PASS] DELETE uses Kick's documented repeated id query parameters on
++ /public/v1/events/subscriptions.
++[PASS] Subscription mappings are re-read from Kick and replaced in D1 after recreation.
++[PASS] SleepySource account/OAuth credentials are not disconnected by event repair.
++[PASS] Public release archive uses top-level folder SleepySource 1.0.0.
++
++CLOUDFLARE OBSERVABILITY / FINAL CHAT DELIVERY
++-----------------------------------------------
++[PASS] wrangler.jsonc explicitly enables Workers Logs.
++[PASS] Invocation logs are enabled at 100% sampling.
++[PASS] Workers Logs persistence to the Cloudflare dashboard is enabled.
++[PASS] Deployment safety checks reject unexpected SleepySource API Workers hostnames.
++[PASS] Packaged source and public executable contain no legacy Workers account hostname text.
++[PASS] Live Kick chat delivery was verified through /kick/webhook, realtime/D1 delivery, and Chat Overlay.
++
+ AUTH / KICK ARCHITECTURE
+ ------------------------
+ [PASS] Desktop Client ID / Client Secret entry and storage are absent.
+@@ -87,8 +118,10 @@ Network access from the build container is also unavailable, so the .NET SDK
+ cannot be downloaded here.
+ 
+ The supplied Public executable came from the previously working package. This
+-release pass changes its version/product identity with equal-length binary string
+-replacements so bundle offsets/file size remain unchanged; its PE structure is
++release line previously changed version/product identity with equal-length binary
++string replacements. This endpoint migration additionally retargets the managed
++API string metadata inside the supplied single-file bundle while preserving the
++outer executable size and bundle manifest layout; its PE/bundle structure is
+ revalidated here. A true Windows launch/API smoke test should still be run before
+ publishing the GitHub Release.
+ 
+diff --git a/readme.txt b/readme.txt
+index a51a699..12335d5 100644
+--- a/readme.txt
++++ b/readme.txt
+@@ -126,3 +126,8 @@ IMPORTANT NOTES
+ - Do not delete SleepySource_Data if you want to keep local configuration.
+ - Read release_notes.txt for the complete consolidated 1.0.0 changelog and
+  pre-release development history.
++
++KICK EVENT REPAIR
++If Kick is connected but chat/alerts stop arriving, open Connections and click
++Sync Kick Events. SleepySource rebuilds its managed Kick subscriptions against
++the current hosted webhook URL without disconnecting your Kick account.
+diff --git a/release_notes.txt b/release_notes.txt
+index feb4419..d069ce8 100644
+--- a/release_notes.txt
++++ b/release_notes.txt
+@@ -32,6 +32,40 @@ NAVIGATION / CONNECTIONS UPDATE

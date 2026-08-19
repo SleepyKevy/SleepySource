@@ -1,0 +1,77 @@
+                 <details class="helpTroubleItem"><summary>Now Playing is not updating</summary><span>Confirm music is playing, then check Media-session source and Include/Exclude filters. Make sure SleepySource sees the track before troubleshooting OBS.</span></details>
+-                <details class="helpTroubleItem"><summary>Kick is connected but chat is missing</summary><span>Open Connections and confirm Account, Kick Events, and Realtime are healthy. Use <b>Sync Kick Events</b> if subscriptions need attention, then check System Health.</span></details>
++                <details class="helpTroubleItem"><summary>Kick is connected but chat is missing</summary><span>Open Connections and confirm Account, Kick Events, and Realtime are healthy. Use <b>Sync Kick Events</b> to rebuild the managed subscriptions if delivery needs attention, then check System Health.</span></details>
+                 <details class="helpTroubleItem"><summary>Countdown will not start</summary><span>Check Timer Setup & Presets → Start behavior. Manual mode needs Start; Browser Source mode needs the <span class="helpCode">/countdown</span> page to load.</span></details>
+                 <details class="helpTroubleItem"><summary>OBS Browser Source is blank</summary><span>Keep SleepySource running, verify the local URL, match the canvas dimensions, and refresh the Browser Source.</span></details>
+                 <details class="helpTroubleItem"><summary>Designer does not open</summary><span>Install Microsoft Edge WebView2 Runtime, fully exit SleepySource from the tray, then reopen it.</span></details>
+@@ -1576,7 +1576,7 @@ async function startKickConnection(){
+   finally{if(btn)btn.disabled=kickOAuthPending(kickConnectionState)}
+ }
+ async function refreshKickConnection(){try{const r=await fetch('/api/kick/refresh',{method:'POST'}),body=await r.text();if(!r.ok)throw new Error(body.trim()||'Could not refresh Kick connection');kickConnectionState={...kickConnectionState,...normalizeKickConnectionPayload(JSON.parse(body))};renderKickConnectionState();await loadChatState();toast('Kick connection refreshed')}catch(err){toast(err.message||'Could not refresh Kick connection')}}
+-async function syncKickEvents(){const btn=$('#kickSyncEventsBtn');if(btn)btn.disabled=true;try{const r=await fetch('/api/kick/events/sync',{method:'POST'}),body=await r.text();if(!r.ok)throw new Error(body.trim()||'Could not sync Kick events');kickConnectionState={...kickConnectionState,...normalizeKickConnectionPayload(JSON.parse(body))};renderKickConnectionState();await loadChatState();toast(kickConnectionState.events_ready?'Kick events synced':'Kick event sync needs attention')}catch(err){toast(err.message||'Could not sync Kick events')}finally{if(btn)btn.disabled=!kickConnectionState.connected}}
++async function syncKickEvents(){const btn=$('#kickSyncEventsBtn');if(btn)btn.disabled=true;try{const r=await fetch('/api/kick/events/sync',{method:'POST'}),body=await r.text();if(!r.ok)throw new Error(body.trim()||'Could not sync Kick events');kickConnectionState={...kickConnectionState,...normalizeKickConnectionPayload(JSON.parse(body))};renderKickConnectionState();await loadChatState();toast(kickConnectionState.events_ready?'Kick event subscriptions refreshed':'Kick event sync needs attention')}catch(err){toast(err.message||'Could not sync Kick events')}finally{if(btn)btn.disabled=!kickConnectionState.connected}}
+ async function disconnectKickConnection(){if(!confirm('Disconnect Kick from SleepySource? This revokes the hosted Kick connection and disables Kick-powered features until you reconnect.'))return;const btn=$('#kickDisconnectBtn');if(btn)btn.disabled=true;try{const r=await fetch('/api/kick/disconnect',{method:'POST'}),body=await r.text();if(!r.ok)throw new Error(body.trim()||'Could not disconnect Kick');kickConnectionState={...kickConnectionState,...normalizeKickConnectionPayload(JSON.parse(body))};chat7Key='';chatBadgeChannel='';await loadChatState();renderKickConnectionState();toast('Kick disconnected')}catch(err){toast(err.message||'Could not disconnect Kick')}finally{if(btn)btn.disabled=false}}
+ $('#kickConnectBtn')?.addEventListener('click',startKickConnection);
+ $('#kickRefreshBtn')?.addEventListener('click',refreshKickConnection);
+diff --git a/CloudflareWorker/CLOUDFLARE_DEPLOY_README.txt b/CloudflareWorker/CLOUDFLARE_DEPLOY_README.txt
+index c705d85..e5ecad5 100644
+--- a/CloudflareWorker/CLOUDFLARE_DEPLOY_README.txt
++++ b/CloudflareWorker/CLOUDFLARE_DEPLOY_README.txt
+@@ -16,6 +16,15 @@ Durable Object binding:
+ Durable Object storage:
+  SQLite
+ 
++Workers Logs / Observability:
++ Enabled
++ Invocation logs: enabled
++ Sampling: 100%
++ Persist to Workers dashboard: enabled
++
++These settings are declared in wrangler.jsonc so future Wrangler deployments
++keep the working Cloudflare log configuration in sync with the dashboard.
++
+ The exports declaration is intentionally included because this Durable Object
+ namespace is already provisioned in Cloudflare. Do not delete the namespace.
+ 
+@@ -31,7 +40,7 @@ DEPLOY
+ 5. Wait for the deployment to finish.
+ 6. Open:
+ 
+- https://sleepysource-api.stinkybud49.workers.dev/health
++ https://sleepysource-api.sleepyservices.workers.dev/health
+ 
+ The config uses keep_vars=true so dashboard-managed non-secret variables are
+ preserved. Existing Worker secrets are also preserved by Wrangler deployments.
+@@ -41,3 +50,8 @@ Expected first line of worker.js:
+ 
+ Do not add a legacy Durable Object migrations block. This package uses the
+ current declarative exports configuration.
++
++Event sync repair behavior:
++- POST /kick/events/sync removes and recreates the SleepySource-managed required subscriptions.
++- This rebinds subscriptions to the Kick developer app's current webhook URL.
++- The connected Kick account and stored OAuth tokens are preserved.
+diff --git a/CloudflareWorker/DEPLOY.ps1 b/CloudflareWorker/DEPLOY.ps1
+index dcc7947..a9a5127 100644
+--- a/CloudflareWorker/DEPLOY.ps1
++++ b/CloudflareWorker/DEPLOY.ps1
+@@ -1,12 +1,57 @@
+ $ErrorActionPreference = 'Stop'
+ Set-Location $PSScriptRoot
+-Write-Host "Deploying SleepySource Auth Worker..." -ForegroundColor Cyan
++
++Write-Host "SleepySource API 1.0.0 deployment" -ForegroundColor Cyan
+ Write-Host "Worker: sleepysource-api"
+-Write-Host "D1: sleepysource-auth"
+-Write-Host "Durable Object: REALTIME -> SleepySourceRealtime (SQLite)"
++Write-Host "D1: sleepysource-auth (binding DB)"
++Write-Host "Durable Object: SleepySourceRealtime (binding REALTIME)"
++Write-Host "Compatibility date: 2026-08-17"
++Write-Host "Workers Logs: enabled (invocation logs + dashboard persistence)"
+ Write-Host ""
+-npx --yes wrangler@latest deploy
+-if ($LASTEXITCODE -ne 0) { throw "Wrangler deploy failed with exit code $LASTEXITCODE" }
++
++$worker = Get-Content -Raw -LiteralPath ".\worker.js"
++$config = Get-Content -Raw -LiteralPath ".\wrangler.jsonc"
++

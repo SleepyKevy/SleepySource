@@ -1,0 +1,84 @@
+diff --git a/.github/workflows/publish-v1.0.0.yml b/.github/workflows/publish-v1.0.0.yml
+index bc4e29c..1454f46 100644
+--- a/.github/workflows/publish-v1.0.0.yml
++++ b/.github/workflows/publish-v1.0.0.yml
+@@ -63,7 +63,7 @@ jobs:
+         run: |
+           $ErrorActionPreference = 'Stop'
+           $release = Join-Path $PWD 'release-dist'
+-          $public = Join-Path $release 'public'
++          $public = Join-Path $release 'SleepySource 1.0.0'
+           $source = Join-Path $release 'SleepySource 1.0.0 Source'
+           if (Test-Path $release) { Remove-Item $release -Recurse -Force }
+           New-Item -ItemType Directory -Path $public -Force | Out-Null
+@@ -75,8 +75,8 @@ jobs:
+           Copy-Item 'readme.txt' $public -Force
+           Copy-Item 'release_notes.txt' $public -Force
+ 
+-          $publicZip = Join-Path $release 'SleepySource_1.0.0_Public.zip'
+-          Compress-Archive -Path (Join-Path $public '*') -DestinationPath $publicZip -CompressionLevel Optimal
++          $publicZip = Join-Path $release 'SleepySource_1.0.0.zip'
++          Compress-Archive -Path $public -DestinationPath $publicZip -CompressionLevel Optimal
+ 
+           $exclude = @('.git', 'smoke-dist', 'release-dist')
+           Get-ChildItem -Force | Where-Object { $exclude -notcontains $_.Name } | ForEach-Object {
+@@ -89,9 +89,9 @@ jobs:
+           $pubArchive = [IO.Compression.ZipFile]::OpenRead($publicZip)
+           try {
+             $pubNames = @($pubArchive.Entries | ForEach-Object FullName)
+-            if ($pubNames -notcontains 'SleepySource.exe') { throw 'Public ZIP is missing SleepySource.exe.' }
+-            if ($pubNames -notcontains 'readme.txt') { throw 'Public ZIP is missing readme.txt.' }
+-            if ($pubNames -notcontains 'release_notes.txt') { throw 'Public ZIP is missing release_notes.txt.' }
++            if ($pubNames -notcontains 'SleepySource 1.0.0/SleepySource.exe') { throw 'Release ZIP is missing SleepySource.exe.' }
++            if ($pubNames -notcontains 'SleepySource 1.0.0/readme.txt') { throw 'Release ZIP is missing readme.txt.' }
++            if ($pubNames -notcontains 'SleepySource 1.0.0/release_notes.txt') { throw 'Release ZIP is missing release_notes.txt.' }
+             if ($pubNames | Where-Object { $_ -match '(^|/)SleepySource_Data/' }) { throw 'Public ZIP contains generated SleepySource_Data.' }
+             if ($pubNames | Where-Object { $_ -match '\.xml$' }) { throw 'Public ZIP contains XML documentation files.' }
+           }
+@@ -114,7 +114,7 @@ jobs:
+         with:
+           name: SleepySource-1.0.0-Release-Packages
+           path: |
+-            release-dist/SleepySource_1.0.0_Public.zip
++            release-dist/SleepySource_1.0.0.zip
+             release-dist/SleepySource_1.0.0_Source.zip
+           if-no-files-found: error
+ 
+@@ -125,7 +125,7 @@ jobs:
+         run: |
+           $ErrorActionPreference = 'Stop'
+           & gh release create 'v1.0.0' `
+-            'release-dist/SleepySource_1.0.0_Public.zip' `
++            'release-dist/SleepySource_1.0.0.zip' `
+             'release-dist/SleepySource_1.0.0_Source.zip' `
+             --repo $env:GITHUB_REPOSITORY `
+             --target $env:GITHUB_SHA `
+diff --git a/CSharpHost/SleepySourceApiService.cs b/CSharpHost/SleepySourceApiService.cs
+index 15a8b33..5525e06 100644
+--- a/CSharpHost/SleepySourceApiService.cs
++++ b/CSharpHost/SleepySourceApiService.cs
+@@ -33,7 +33,7 @@ internal sealed class HostedKickState
+ 
+ internal sealed class SleepySourceApiService : IDisposable
+ {
+-    public const string ApiBase = "https://sleepysource-api.stinkybud49.workers.dev";
++    public const string ApiBase = "https://sleepysource-api.sleepyservices.workers.dev";
+     private const string ConnectionFile = "kick_connection.json";
+     private readonly object gate = new();
+     private readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(20) };
+diff --git a/CSharpHost/web/index.html b/CSharpHost/web/index.html
+index 03147e2..8e69d18 100644
+--- a/CSharpHost/web/index.html
++++ b/CSharpHost/web/index.html
+@@ -838,7 +838,7 @@ button:disabled{opacity:.62}
+         </section>
+         <section class="connectionsCard" aria-labelledby="connectionsStatusTitle">
+           <div class="connectionsCardHead"><div class="connectionsCardTitleWrap"><span class="connectionsStep" aria-hidden="true">2</span><div><span class="connectionsCardEyebrow">Hosted Connection</span><h3 id="connectionsStatusTitle">Account &amp; event status</h3><p>Chat Overlay, Alert Studio, and Stream Dashboard all inherit this same connection.</p></div></div><span class="streamAuthPill warn" id="connectionsEventsPill">Events inactive</span></div>
+-          <div class="connectionsCardBody"><div class="connectionsStatusGrid"><div class="connectionsStatusItem"><span>Account</span><strong id="kickAccountStatus">Not connected</strong></div><div class="connectionsStatusItem"><span>Authorization</span><strong id="kickAuthorizationStatus">Not authorized</strong></div><div class="connectionsStatusItem"><span>Kick Events</span><strong id="kickEventsStatus">Inactive</strong></div><div class="connectionsStatusItem"><span>Realtime</span><strong id="kickRealtimeStatus">Disconnected</strong></div><div class="connectionsStatusItem"><span>Fallback queue</span><strong id="kickFallbackStatus">Ready</strong></div><div class="connectionsStatusItem"><span>Last event</span><strong id="kickLastEventStatus">None this session</strong></div></div><div class="connectionsActionRow"><button class="secondary" id="kickSyncEventsBtn">Sync Kick Events</button><span class="connectionsInlineStatus">Event subscriptions and token refresh are managed by SleepySource.</span></div></div>
++          <div class="connectionsCardBody"><div class="connectionsStatusGrid"><div class="connectionsStatusItem"><span>Account</span><strong id="kickAccountStatus">Not connected</strong></div><div class="connectionsStatusItem"><span>Authorization</span><strong id="kickAuthorizationStatus">Not authorized</strong></div><div class="connectionsStatusItem"><span>Kick Events</span><strong id="kickEventsStatus">Inactive</strong></div><div class="connectionsStatusItem"><span>Realtime</span><strong id="kickRealtimeStatus">Disconnected</strong></div><div class="connectionsStatusItem"><span>Fallback queue</span><strong id="kickFallbackStatus">Ready</strong></div><div class="connectionsStatusItem"><span>Last event</span><strong id="kickLastEventStatus">None this session</strong></div></div><div class="connectionsActionRow"><button class="secondary" id="kickSyncEventsBtn">Sync Kick Events</button><span class="connectionsInlineStatus">Sync Kick Events rebuilds the managed subscriptions when delivery needs repair.</span></div></div>
+         </section>
+       </div>
+     </section>
+@@ -1016,7 +1016,7 @@ button:disabled{opacity:.62}
+               <p>Open only the problem you are having.</p>
+               <div class="helpTrouble">

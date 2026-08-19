@@ -1,0 +1,146 @@
++$workerHosts = @([regex]::Matches($worker, '(?i)(?:https|wss)://sleepysource-api\.[a-z0-9.-]+\.workers\.dev') | ForEach-Object { $_.Value } | Select-Object -Unique)
++$unexpectedHosts = @($workerHosts | Where-Object { $_ -notmatch '^(?:https|wss)://sleepysource-api\.sleepyservices\.workers\.dev$' })
++if ($unexpectedHosts.Count -gt 0) {
++    throw "Safety check failed: unexpected SleepySource API Workers hostname found: $($unexpectedHosts -join ', ')"
++}
++if ($worker -notmatch 'sleepysource-api\.sleepyservices\.workers\.dev') {
++    throw "Safety check failed: sleepyservices hostname was not found. Deployment cancelled."
++}
++if ($worker -notmatch 'export class SleepySourceRealtime extends DurableObject') {
++    throw "Safety check failed: SleepySourceRealtime export was not found. Deployment cancelled."
++}
++if ($worker -notmatch 'deleteKickEventSubscriptions') {
++    throw "Safety check failed: Kick subscription refresh helper was not found. Deployment cancelled."
++}
++if ($config -notmatch '"observability"\s*:\s*\{') {
++    throw "Safety check failed: observability configuration is missing. Deployment cancelled."
++}
++if ($config -notmatch '"invocation_logs"\s*:\s*true') {
++    throw "Safety check failed: invocation logging is not enabled. Deployment cancelled."
++}
++if ($config -notmatch '"persist"\s*:\s*true') {
++    throw "Safety check failed: Workers Logs dashboard persistence is not enabled. Deployment cancelled."
++}
++
++Write-Host "Running Wrangler dry-run first..." -ForegroundColor Yellow
++npx --yes wrangler@4.124.0 deploy --dry-run --keep-vars
++if ($LASTEXITCODE -ne 0) { throw "Wrangler dry-run failed. Nothing was deployed." }
++
+ Write-Host ""
+-Write-Host "Deployment complete." -ForegroundColor Green
+-Write-Host "Health check: https://sleepysource-api.stinkybud49.workers.dev/health"
++Write-Host "Dry-run passed. Existing dashboard variables and secrets are preserved." -ForegroundColor Green
++$answer = Read-Host "Type DEPLOY to update the live sleepysource-api Worker"
++if ($answer -cne 'DEPLOY') {
++    Write-Host "Cancelled. Nothing was deployed." -ForegroundColor Yellow
++    exit 0
++}
++
++npx --yes wrangler@4.124.0 deploy --keep-vars
++if ($LASTEXITCODE -ne 0) { throw "Deployment failed." }
++
++Write-Host ""
++Write-Host "Deployment command completed." -ForegroundColor Green
++Write-Host "Health check: https://sleepysource-auth-page.pages.dev/api/health"
++Write-Host "Logs: Cloudflare Workers & Pages > sleepysource-api > Observability"
+diff --git a/CloudflareWorker/DEPLOYMENT.md b/CloudflareWorker/DEPLOYMENT.md
+index 18b461e..fe91ff2 100644
+--- a/CloudflareWorker/DEPLOYMENT.md
++++ b/CloudflareWorker/DEPLOYMENT.md
+@@ -2,7 +2,7 @@
+ 
+ The desktop release expects the matching hosted Worker at:
+ 
+-`https://sleepysource-api.stinkybud49.workers.dev`
++`https://sleepysource-api.sleepyservices.workers.dev`
+ 
+ ## What this Worker owns
+ 
+@@ -16,6 +16,7 @@ The desktop release expects the matching hosted Worker at:
+ - D1-backed reliable desktop delivery queue
+ - authenticated realtime WebSocket delivery through a Durable Object
+ - Stream Dashboard channel/category proxy operations
++- persisted Cloudflare Workers invocation logs for troubleshooting
+ 
+ The desktop application does **not** need the Kick Client ID, Client Secret,
+ Kick access token, refresh token, redirect URI, webhook URL or Cloudflare
+@@ -35,10 +36,17 @@ Keep these existing server-side settings/bindings configured:
+ 
+ The Kick application redirect URI must match the deployed Worker callback:
+ 
+-`https://sleepysource-api.stinkybud49.workers.dev/oauth/kick/callback`
++`https://sleepysource-api.sleepyservices.workers.dev/oauth/kick/callback`
+ 
+ Do not put the Client Secret or token-encryption key in the desktop source.
+ 
++## Observability
++
++The packaged `wrangler.jsonc` keeps Workers Logs enabled across future Wrangler
++deployments. Invocation logs are enabled at 100% sampling and persisted in the
++Cloudflare Workers dashboard. This preserves the live troubleshooting view used
++to verify Kick `POST /kick/webhook` delivery.
++
+ ## Release routes
+ 
+ OAuth / connection:
+@@ -92,3 +100,8 @@ The included Worker requests:
+ 
+ The Worker creates/updates its D1 schema from code. D1 remains the reliable
+ source of truth for event delivery; the WebSocket is the fast path.
++
++Event sync repair behavior:
++- POST /kick/events/sync removes and recreates the SleepySource-managed required subscriptions.
++- This rebinds subscriptions to the Kick developer app's current webhook URL.
++- The connected Kick account and stored OAuth tokens are preserved.
+diff --git a/CloudflareWorker/FINAL_AUTH_STATUS.txt b/CloudflareWorker/FINAL_AUTH_STATUS.txt
+index 1859309..baae11b 100644
+--- a/CloudflareWorker/FINAL_AUTH_STATUS.txt
++++ b/CloudflareWorker/FINAL_AUTH_STATUS.txt
+@@ -9,3 +9,11 @@ Confirmed working on 2026-08-17:
+ - SleepySourceRealtime SQLite export declaration
+ - Wrangler deployment to sleepysource-api
+ - /health reports configured/healthy
++
++Confirmed working on 2026-08-18:
++- sleepyservices Worker domain migration
++- new Kick Developer App OAuth connection
++- Kick POST /kick/webhook delivery
++- realtime + D1 poll/ack delivery path
++- Kick chat messages reaching the SleepySource Chat Overlay
++- Workers Logs enabled and persisted through wrangler.jsonc
+diff --git a/CloudflareWorker/worker.js b/CloudflareWorker/worker.js
+index 127261f..063f62f 100644
+--- a/CloudflareWorker/worker.js
++++ b/CloudflareWorker/worker.js
+@@ -176,8 +176,8 @@ async function handleHealth(env) {
+       realtimeWebSocketEnabled: Boolean(env.REALTIME),
+       realtimeHibernationEnabled: Boolean(env.REALTIME),
+       realtimeFallbackQueueEnabled: true,
+-      realtimeWebSocketUrl: `wss://sleepysource-api.stinkybud49.workers.dev${REALTIME_WEBSOCKET_PATH}`,
+-      kickWebhookUrl: `https://sleepysource-api.stinkybud49.workers.dev${KICK_WEBHOOK_PATH}`,
++      realtimeWebSocketUrl: `wss://sleepysource-api.sleepyservices.workers.dev${REALTIME_WEBSOCKET_PATH}`,
++      kickWebhookUrl: `https://sleepysource-api.sleepyservices.workers.dev${KICK_WEBHOOK_PATH}`,
+       kickRedirectUri: env.KICK_REDIRECT_URI || null,
+     },
+     { headers: noStoreHeaders() }
+@@ -1176,12 +1176,43 @@ async function handleEventSubscriptionsSync(request, env) {
+     }
+ 
+     const before = normalizeKickSubscriptions(beforeRemote.data);
+-    const beforeSummary = summarizeRequiredSubscriptions(before);
++    const requiredKeys = new Set(
++      SLEEPYSOURCE_BASE_EVENTS.map(
++        (event) => `${event.name}@${event.version}`
++      )
++    );
++    const existingRequired = before.filter(
++      (subscription) =>
++        requiredKeys.has(`${subscription.event}@${subscription.version}`)
++    );
+     const attempts = [];
++    const removedSubscriptionIds = existingRequired.map(
++      (subscription) => subscription.id
++    );
++
++    // A manual/automatic SleepySource sync is also a repair operation.
++    // Recreate the managed subscriptions so Kick rebinds them to the

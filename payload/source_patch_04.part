@@ -1,0 +1,40 @@
+ - Updated active-state logic so opening Connections does not highlight Tools.
+ - Preserved the existing SleepySource visual style and Connections workspace.
+ 
++SLEEPYSERVICES ENDPOINT MIGRATION
++----------------------------------
++- Kept the product version at SleepySource 1.0.0.
++- Moved the hosted SleepySource API base from the retired account Workers subdomain to https://sleepysource-api.sleepyservices.workers.dev.
++- Updated desktop OAuth start/status, API health, persistent connection, realtime,
++  stream proxy, and hosted event calls to use the sleepyservices endpoint.
++- Updated the packaged Cloudflare Worker health/webhook URLs and deployment docs
++  so a future Worker redeploy does not restore the retired subdomain.
++- Preserved the existing Kick redirect path, webhook path, D1 binding, realtime
++  Durable Object binding, and SleepySource 1.0.0 product/version identity.
++- Release package filename is SleepySource_1.0.0.zip (no “Public” suffix).
++
++
++KICK EVENT DELIVERY REPAIR
++--------------------------
++- Kept the product version at SleepySource 1.0.0.
++- Changed hosted Kick event sync into a repair-safe rebuild: existing SleepySource-managed
++  subscriptions are removed and recreated against the Kick developer app's current webhook URL.
++- This repairs stale subscriptions after the legacy Workers subdomain -> sleepyservices webhook migration
++  and other cases where Kick reports subscriptions as active but stops delivering events.
++- Rebuild is limited to SleepySource's managed required events; unrelated subscriptions are left alone.
++- The desktop Sync Kick Events action now reports that subscriptions were refreshed.
++- Public ZIP layout now contains one top-level folder named “SleepySource 1.0.0”.
++
++
++CLOUDFLARE / KICK FINAL CLEANUP
++-------------------------------
++- Kept the product version at SleepySource 1.0.0.
++- Confirmed the new Kick Developer App delivers chat events to the sleepyservices webhook.
++- Confirmed Kick chat reaches the hosted Worker, realtime/D1 delivery, and Chat Overlay.
++- Declared Workers Logs in wrangler.jsonc so invocation logging and dashboard persistence survive future deployments.
++- Removed the final legacy Workers-account hostname text from the packaged source/deployment scripts.
++- Preserved the SleepySource 1.0.0 public ZIP layout with one top-level “SleepySource 1.0.0” folder.
++
+ HOSTED KICK OAUTH / CONNECTION SYSTEM
+ -------------------------------------
+ - Added one hosted Connect with Kick flow shared by Chat Overlay, Alert Studio,

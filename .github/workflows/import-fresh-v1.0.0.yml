@@ -1,0 +1,365 @@
+name: One-time SleepySource 1.0.0 Fresh Import
+
+on:
+  push:
+    branches:
+      - agent/import-fresh-v1.0.0
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout transport branch
+        uses: actions/checkout@v4
+
+      - name: Download previous verified packages
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/old-artifact"
+          gh run download 32099329368 \
+            --repo "$GITHUB_REPOSITORY" \
+            --name 'SleepySource-1.0.0-Release-Packages' \
+            --dir "$RUNNER_TEMP/old-artifact"
+          test -f "$RUNNER_TEMP/old-artifact/SleepySource_1.0.0_Source.zip"
+          test -f "$RUNNER_TEMP/old-artifact/SleepySource_1.0.0_Public.zip"
+
+      - name: Reconstruct exact source package contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/old-source"
+          unzip -q "$RUNNER_TEMP/old-artifact/SleepySource_1.0.0_Source.zip" -d "$RUNNER_TEMP/old-source"
+          SOURCE_ROOT="$RUNNER_TEMP/old-source/SleepySource 1.0.0 Source"
+          test -d "$SOURCE_ROOT"
+
+          cat payload/source_patch_*.part > "$RUNNER_TEMP/source.patch"
+
+          python3 - "$SOURCE_ROOT" <<'PY'
+          from pathlib import Path
+          import sys
+          root = Path(sys.argv[1])
+          changed = [
+              '.github/workflows/publish-v1.0.0.yml',
+              'CSharpHost/SleepySourceApiService.cs',
+              'CSharpHost/web/index.html',
+              'CloudflareWorker/CLOUDFLARE_DEPLOY_README.txt',
+              'CloudflareWorker/DEPLOY.ps1',
+              'CloudflareWorker/DEPLOYMENT.md',
+              'CloudflareWorker/FINAL_AUTH_STATUS.txt',
+              'CloudflareWorker/worker.js',
+              'CloudflareWorker/wrangler.jsonc',
+              'VALIDATION.txt',
+              'readme.txt',
+              'release_notes.txt',
+          ]
+          for rel in changed:
+              p = root / rel
+              data = p.read_bytes().replace(b'\r\n', b'\n')
+              p.write_bytes(data)
+          PY
+
+          cd "$SOURCE_ROOT"
+          git apply --check "$RUNNER_TEMP/source.patch"
+          git apply "$RUNNER_TEMP/source.patch"
+          test "$(find . -type f | wc -l)" -eq 54
+          sha256sum -c "$GITHUB_WORKSPACE/payload/source_manifest.sha256"
+
+          mkdir -p "$RUNNER_TEMP/rebuilt-source"
+          cp -a "$SOURCE_ROOT/." "$RUNNER_TEMP/rebuilt-source/"
+
+      - name: Reconstruct exact public package contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/old-public"
+          unzip -q "$RUNNER_TEMP/old-artifact/SleepySource_1.0.0_Public.zip" -d "$RUNNER_TEMP/old-public"
+
+          PUBLIC_PARENT="$RUNNER_TEMP/rebuilt-public"
+          PUBLIC_ROOT="$PUBLIC_PARENT/SleepySource 1.0.0"
+          mkdir -p "$PUBLIC_ROOT"
+          cp -a "$RUNNER_TEMP/old-public/." "$PUBLIC_ROOT/"
+
+          cp "$RUNNER_TEMP/rebuilt-source/readme.txt" "$PUBLIC_ROOT/readme.txt"
+          cp "$RUNNER_TEMP/rebuilt-source/release_notes.txt" "$PUBLIC_ROOT/release_notes.txt"
+          cp "$RUNNER_TEMP/rebuilt-source/CSharpHost/web/index.html" "$PUBLIC_ROOT/web/index.html"
+
+          echo '780f45a0a9a7749d75b238938253dea183f1a1acf93e48cd88754cc7a3716253  SleepySource.exe' | \
+            (cd "$PUBLIC_ROOT" && sha256sum -c -)
+
+          cat payload/exe_patch_*.b64 | tr -d '\r\n' | base64 -d > "$RUNNER_TEMP/exe.patch.zlib"
+          python3 - "$PUBLIC_ROOT/SleepySource.exe" "$RUNNER_TEMP/exe.patch.zlib" <<'PY'
+          import struct, sys, zlib
+          from pathlib import Path
+          exe_path = Path(sys.argv[1])
+          patch_path = Path(sys.argv[2])
+          raw = zlib.decompress(patch_path.read_bytes())
+          if raw[:4] != b'SP1\0':
+              raise SystemExit('Invalid sparse patch signature')
+          final_len = struct.unpack_from('<Q', raw, 4)[0]
+          count = struct.unpack_from('<I', raw, 12)[0]
+          pos = 16
+          data = bytearray(exe_path.read_bytes())
+          if len(data) != final_len:
+              raise SystemExit(f'Unexpected EXE length: {len(data)} != {final_len}')
+          for _ in range(count):
+              offset = struct.unpack_from('<Q', raw, pos)[0]
+              size = struct.unpack_from('<I', raw, pos + 8)[0]
+              pos += 12
+              data[offset:offset + size] = raw[pos:pos + size]
+              pos += size
+          if pos != len(raw):
+              raise SystemExit('Sparse patch has trailing or missing data')
+          exe_path.write_bytes(data)
+          print(f'Applied {count} sparse EXE spans; final size {len(data)} bytes')
+          PY
+
+          cd "$PUBLIC_ROOT"
+          sha256sum -c "$GITHUB_WORKSPACE/payload/public_manifest.sha256"
+          echo 'f82172ae55f74180ad99150d312a9b09ec418e29535a12b1eda582cef3cf8fc6  SleepySource.exe' | sha256sum -c -
+
+      - name: Upload reconstructed source
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fresh-SleepySource-Source
+          path: ${{ runner.temp }}/rebuilt-source/
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload reconstructed public contents
+        uses: actions/upload-artifact@v4
+        with:
+          name: Fresh-SleepySource-Public
+          path: ${{ runner.temp }}/rebuilt-public/
+          if-no-files-found: error
+          retention-days: 1
+
+  windows-smoke:
+    needs: prepare
+    runs-on: windows-latest
+    steps:
+      - name: Download reconstructed source
+        uses: actions/download-artifact@v4
+        with:
+          name: Fresh-SleepySource-Source
+          path: source
+
+      - name: Download reconstructed public contents
+        uses: actions/download-artifact@v4
+        with:
+          name: Fresh-SleepySource-Public
+          path: public
+
+      - name: Use .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Compile exact source tree
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet restore source/CSharpHost/SleepySource.csproj -r win-x64
+          dotnet publish source/CSharpHost/SleepySource.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore -o source-build
+          if (-not (Test-Path 'source-build/SleepySource.exe')) { throw 'Source did not produce SleepySource.exe.' }
+          if (Get-ChildItem source/CSharpHost -Recurse -Filter *.go -ErrorAction SilentlyContinue) { throw 'Unexpected Go source exists under CSharpHost.' }
+
+      - name: Smoke-test source build and exact release EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Test-SleepySourceRuntime([string]$ExePath, [string]$Label) {
+            $exe = (Resolve-Path $ExePath).Path
+            $base = 'http://127.0.0.1:17891'
+            Write-Host "Testing $Label -> $exe"
+            $proc = Start-Process -FilePath $exe -ArgumentList '--headless' -PassThru
+            try {
+              $ready = $false
+              for ($i = 0; $i -lt 50; $i++) {
+                if ($proc.HasExited) { throw "$Label exited before backend readiness. Exit code: $($proc.ExitCode)" }
+                try {
+                  $health = Invoke-WebRequest "$base/api/health" -TimeoutSec 2 -UseBasicParsing
+                  if ($health.StatusCode -eq 200 -and $health.Content.Trim() -eq 'ok') { $ready = $true; break }
+                } catch { }
+                Start-Sleep -Milliseconds 500
+              }
+              if (-not $ready) { throw "$Label did not bind to 127.0.0.1:17891 in time." }
+
+              foreach ($path in @('/', '/designer', '/chat', '/overlay', '/countdown', '/alerts')) {
+                $r = Invoke-WebRequest ($base + $path) -TimeoutSec 5 -UseBasicParsing
+                if ($r.StatusCode -ne 200 -or $r.Content -notmatch '<!doctype html>') { throw "$Label failed page $path." }
+              }
+
+              foreach ($path in @('/api/state','/api/settings','/api/countdown/state','/api/countdown/settings','/api/countdown/profiles','/api/alerts/state?consume=0','/api/alerts/settings','/api/chat/state','/api/chat/settings','/api/profiles','/api/kick/status')) {
+                $r = Invoke-WebRequest ($base + $path) -TimeoutSec 5 -UseBasicParsing
+                if ($r.StatusCode -ne 200) { throw "$Label failed API $path." }
+                try { $null = $r.Content | ConvertFrom-Json } catch { throw "$Label returned invalid JSON from $path." }
+              }
+
+              $chatBody = @{ username = 'FreshImportSmoke'; text = 'Fresh import chat smoke'; user_id = '12345' } | ConvertTo-Json
+              $chat = Invoke-WebRequest "$base/api/chat/test" -Method Post -ContentType 'application/json' -Body $chatBody -TimeoutSec 5 -UseBasicParsing
+              if ($chat.StatusCode -ne 200 -or $chat.Content -notmatch 'FreshImportSmoke') { throw "$Label chat test failed." }
+
+              $alertBody = @{ type = 'follow'; username = 'FreshImportFollower' } | ConvertTo-Json
+              $alert = Invoke-WebRequest "$base/api/alerts/test" -Method Post -ContentType 'application/json' -Body $alertBody -TimeoutSec 5 -UseBasicParsing
+              if ($alert.StatusCode -ne 200) { throw "$Label alert test failed." }
+
+              $countdownBody = @{ action = 'reset' } | ConvertTo-Json
+              $countdown = Invoke-WebRequest "$base/api/countdown/control" -Method Post -ContentType 'application/json' -Body $countdownBody -TimeoutSec 5 -UseBasicParsing
+              if ($countdown.StatusCode -ne 200) { throw "$Label countdown test failed." }
+
+              $backup = Invoke-WebRequest "$base/api/backup/export" -TimeoutSec 10 -UseBasicParsing
+              if ($backup.StatusCode -ne 200 -or $backup.Headers['Content-Type'] -notmatch 'application/zip') { throw "$Label backup export failed." }
+
+              Write-Host "$Label runtime/API smoke passed."
+            }
+            finally {
+              if ($proc -and -not $proc.HasExited) {
+                Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+                $proc.WaitForExit(5000) | Out-Null
+              }
+              Start-Sleep -Milliseconds 750
+            }
+          }
+
+          Test-SleepySourceRuntime 'source-build/SleepySource.exe' 'source build'
+          Test-SleepySourceRuntime 'public/SleepySource 1.0.0/SleepySource.exe' 'uploaded release EXE'
+
+      - name: Verify exact release EXE checksum
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $actual = (Get-FileHash 'public/SleepySource 1.0.0/SleepySource.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = 'f82172ae55f74180ad99150d312a9b09ec418e29535a12b1eda582cef3cf8fc6'
+          if ($actual -ne $expected) { throw "Release EXE hash mismatch: $actual" }
+          Write-Host "Exact release EXE verified: $actual"
+
+  publish:
+    needs: [prepare, windows-smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout transport branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download reconstructed source
+        uses: actions/download-artifact@v4
+        with:
+          name: Fresh-SleepySource-Source
+          path: source
+
+      - name: Download reconstructed public contents
+        uses: actions/download-artifact@v4
+        with:
+          name: Fresh-SleepySource-Public
+          path: public
+
+      - name: Re-verify exact source and public contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd source && sha256sum -c "$GITHUB_WORKSPACE/payload/source_manifest.sha256")
+          (cd 'public/SleepySource 1.0.0' && sha256sum -c "$GITHUB_WORKSPACE/payload/public_manifest.sha256")
+
+      - name: Create one clean source commit on main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          EXPECTED_MAIN='778027b42477e506ba55df2417dc6a86eca2ddf4'
+          CURRENT_MAIN="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          if [ "$CURRENT_MAIN" != "$EXPECTED_MAIN" ]; then
+            echo "main changed unexpectedly: $CURRENT_MAIN" >&2
+            exit 1
+          fi
+
+          INDEX_FILE="$RUNNER_TEMP/fresh-main.index"
+          rm -f "$INDEX_FILE"
+          GIT_INDEX_FILE="$INDEX_FILE" git read-tree --empty
+          GIT_INDEX_FILE="$INDEX_FILE" git --work-tree="$GITHUB_WORKSPACE/source" add -f -A
+          TREE_SHA="$(GIT_INDEX_FILE="$INDEX_FILE" git write-tree)"
+
+          export GIT_AUTHOR_NAME='SleepyKevy'
+          export GIT_AUTHOR_EMAIL='316921689+SleepyKevy@users.noreply.github.com'
+          export GIT_COMMITTER_NAME='SleepyKevy'
+          export GIT_COMMITTER_EMAIL='316921689+SleepyKevy@users.noreply.github.com'
+          NEW_SHA="$(printf '%s\n' 'Import SleepySource 1.0.0' | git commit-tree "$TREE_SHA" -p "$EXPECTED_MAIN")"
+          git push origin "$NEW_SHA:refs/heads/main"
+          echo "NEW_SHA=$NEW_SHA" >> "$GITHUB_ENV"
+          echo "Fresh main commit: $NEW_SHA"
+
+      - name: Build clean release ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd public
+          zip -q -r -9 "$RUNNER_TEMP/SleepySource_1.0.0.zip" 'SleepySource 1.0.0'
+          unzip -t "$RUNNER_TEMP/SleepySource_1.0.0.zip" >/dev/null
+
+      - name: Replace v1.0.0 tag, release asset, and notes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v1.0.0" >/dev/null 2>&1; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/v1.0.0" -f sha="$NEW_SHA" -F force=true >/dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref='refs/tags/v1.0.0' -f sha="$NEW_SHA" >/dev/null
+          fi
+
+          if gh release view 'v1.0.0' --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            mapfile -t assets < <(gh release view 'v1.0.0' --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+            for asset in "${assets[@]}"; do
+              [ -n "$asset" ] && gh release delete-asset 'v1.0.0' "$asset" --repo "$GITHUB_REPOSITORY" -y
+            done
+            gh release upload 'v1.0.0' "$RUNNER_TEMP/SleepySource_1.0.0.zip" --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit 'v1.0.0' --repo "$GITHUB_REPOSITORY" --title 'SleepySource 1.0.0' --notes-file 'source/release_notes.txt' --draft=false --prerelease=false
+          else
+            gh release create 'v1.0.0' "$RUNNER_TEMP/SleepySource_1.0.0.zip" --repo "$GITHUB_REPOSITORY" --target "$NEW_SHA" --title 'SleepySource 1.0.0' --notes-file 'source/release_notes.txt'
+          fi
+
+      - name: Verify published tag and release download contents
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v1.0.0" --jq '.object.sha')"
+          [ "$TAG_SHA" = "$NEW_SHA" ]
+
+          RELEASE_JSON="$(gh release view 'v1.0.0' --repo "$GITHUB_REPOSITORY" --json tagName,name,isDraft,isPrerelease,assets)"
+          [ "$(jq -r '.tagName' <<<"$RELEASE_JSON")" = 'v1.0.0' ]
+          [ "$(jq -r '.name' <<<"$RELEASE_JSON")" = 'SleepySource 1.0.0' ]
+          [ "$(jq -r '.isDraft' <<<"$RELEASE_JSON")" = 'false' ]
+          [ "$(jq -r '.isPrerelease' <<<"$RELEASE_JSON")" = 'false' ]
+          mapfile -t asset_names < <(jq -r '.assets[].name' <<<"$RELEASE_JSON")
+          [ "${#asset_names[@]}" -eq 1 ]
+          [ "${asset_names[0]}" = 'SleepySource_1.0.0.zip' ]
+
+          mkdir -p "$RUNNER_TEMP/release-check"
+          gh release download 'v1.0.0' --repo "$GITHUB_REPOSITORY" --pattern 'SleepySource_1.0.0.zip' --dir "$RUNNER_TEMP/release-check"
+          mkdir -p "$RUNNER_TEMP/release-extracted"
+          unzip -q "$RUNNER_TEMP/release-check/SleepySource_1.0.0.zip" -d "$RUNNER_TEMP/release-extracted"
+          cd "$RUNNER_TEMP/release-extracted/SleepySource 1.0.0"
+          sha256sum -c "$GITHUB_WORKSPACE/payload/public_manifest.sha256"
+          echo "Release verified at commit $NEW_SHA"
+
+      - name: Remove one-time transport branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/agent/import-fresh-v1.0.0"
+          echo 'Temporary import branch removed.'
