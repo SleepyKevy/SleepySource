@@ -1,0 +1,27 @@
+name: Import Run ID Marker
+
+on:
+  push:
+    branches:
+      - agent/import-fresh-v1.0.0
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  marker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish marker run URL
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state='success' \
+            -f context='sleepysource/import-marker' \
+            -f description='Import diagnostic marker.' \
+            -f target_url="$RUN_URL" >/dev/null
