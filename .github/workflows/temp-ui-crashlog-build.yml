@@ -40,6 +40,13 @@ jobs:
           Copy-Item 'CSharpHost\assets' 'exact-src\CSharpHost\assets' -Recurse -Force
           if (-not (Test-Path 'exact-src\CSharpHost\CrashLogService.cs')) { throw 'CrashLogService.cs is missing from exact source.' }
 
+      - name: Upload reconstructed source
+        uses: actions/upload-artifact@v4
+        with:
+          name: SleepySource-UI-Test-CrashLog-Source
+          path: exact-src/CSharpHost/
+          if-no-files-found: error
+
       - name: Publish Windows x64
         shell: pwsh
         run: |
