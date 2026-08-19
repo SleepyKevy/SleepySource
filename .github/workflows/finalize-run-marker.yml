@@ -1,0 +1,31 @@
+name: Finalize Run Marker
+
+on:
+  push:
+    branches:
+      - agent/import-fresh-v1.0.0
+
+permissions:
+  actions: read
+  contents: read
+  statuses: write
+
+jobs:
+  marker:
+    if: github.event.head_commit.message == 'Expose finalize run'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish finalize run URL
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          RUN_ID="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/finalize-fresh-import.yml/runs?head_sha=29b635e5d810cb933110b0efbe1a17cc4eeaf561&event=push" --jq '.workflow_runs[0].id')"
+          test -n "$RUN_ID"
+          RUN_URL="https://github.com/$GITHUB_REPOSITORY/actions/runs/$RUN_ID"
+          gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state='success' \
+            -f context='sleepysource/finalize-run' \
+            -f description='Finalize run exposed.' \
+            -f target_url="$RUN_URL" >/dev/null
