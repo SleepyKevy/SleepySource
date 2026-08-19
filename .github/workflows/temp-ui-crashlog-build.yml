@@ -1,0 +1,89 @@
+name: Temp SleepySource UI Test CrashLog Build
+
+on:
+  push:
+    branches:
+      - temp-ui-test-crashlog-build
+  pull_request:
+    branches:
+      - temp-ui-test-crashlog-build
+
+permissions:
+  contents: read
+  statuses: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout temporary build branch
+        uses: actions/checkout@v4
+
+      - name: Use .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Reconstruct exact UI Test source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Path exact-src -Force | Out-Null
+          $parts = Get-ChildItem '.tmp-ui-crash-build\payload.*.b64' | Sort-Object Name
+          if ($parts.Count -ne 6) { throw "Expected 6 source payload parts, found $($parts.Count)." }
+          $b64 = ($parts | ForEach-Object { [IO.File]::ReadAllText($_.FullName) }) -join ''
+          [IO.File]::WriteAllBytes('exact-src\CSharpHost.tar.xz', [Convert]::FromBase64String($b64))
+          $hash = (Get-FileHash 'exact-src\CSharpHost.tar.xz' -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($hash -ne '07c9496d070a1cbed7fd510b2e0ef20836e3d845f6daff1cd0eb15f474e9d136') { throw "Source payload SHA-256 mismatch: $hash" }
+          tar -xf 'exact-src\CSharpHost.tar.xz' -C exact-src
+          if (-not (Test-Path 'exact-src\CSharpHost\SleepySource.csproj')) { throw 'Exact C# source did not extract correctly.' }
+          Copy-Item 'CSharpHost\assets' 'exact-src\CSharpHost\assets' -Recurse -Force
+          if (-not (Test-Path 'exact-src\CSharpHost\CrashLogService.cs')) { throw 'CrashLogService.cs is missing from exact source.' }
+
+      - name: Publish Windows x64
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet restore 'exact-src\CSharpHost\SleepySource.csproj' -r win-x64
+          dotnet publish 'exact-src\CSharpHost\SleepySource.csproj' -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore -o smoke-dist
+          Get-ChildItem smoke-dist -Recurse -Filter *.xml -File -ErrorAction SilentlyContinue | Remove-Item -Force
+          if (-not (Test-Path 'smoke-dist\SleepySource.exe')) { throw 'SleepySource.exe was not produced.' }
+          if (Test-Path 'smoke-dist\SleepySourceHost.exe') { throw 'SleepySourceHost.exe is forbidden.' }
+          if (Test-Path 'smoke-dist\SleepySource.Engine.exe') { throw 'SleepySource.Engine.exe is forbidden.' }
+
+      - name: Run compiled crashlog smoke test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $proc = Start-Process -FilePath (Resolve-Path 'smoke-dist\SleepySource.exe') -ArgumentList '--smoke-test' -PassThru -Wait -WindowStyle Hidden
+          if ($proc.ExitCode -ne 0) { throw "Compiled smoke test failed with exit code $($proc.ExitCode)." }
+          if (Test-Path 'smoke-dist\SleepySource_Data') { Remove-Item 'smoke-dist\SleepySource_Data' -Recurse -Force }
+          if (Test-Path 'smoke-dist\Logs') { Remove-Item 'smoke-dist\Logs' -Recurse -Force }
+          if (Get-ChildItem smoke-dist -Recurse -Filter *.xml -File -ErrorAction SilentlyContinue) { throw 'XML documentation files remain in build output.' }
+          if (-not (Select-String -Path 'exact-src\CSharpHost\BackendHost.cs' -SimpleMatch '/api/system/crashes')) { throw 'Crash status API source marker missing.' }
+          if (-not (Select-String -Path 'exact-src\CSharpHost\DiagnosticService.cs' -SimpleMatch 'crashes/')) { throw 'Diagnostic crash-log export source marker missing.' }
+          Write-Host 'SleepySource crash-log build and compiled smoke test passed.'
+
+      - name: Upload smoke-tested Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: SleepySource-UI-Test-CrashLog-Build
+          path: smoke-dist/
+          if-no-files-found: error
+
+      - name: Publish temporary build status
+        if: always()
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ job.status }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:RESULT -eq 'success') { $state='success'; $description='UI Test crashlog Windows build passed.' }
+          else { $state='failure'; $description='UI Test crashlog Windows build failed.' }
+          $body = @{ state=$state; context='sleepysource/ui-test-crashlog-build'; description=$description; target_url=$env:RUN_URL } | ConvertTo-Json
+          $headers = @{ Authorization="Bearer $env:GH_TOKEN"; Accept='application/vnd.github+json'; 'X-GitHub-Api-Version'='2022-11-28' }
+          Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$env:REPO/statuses/$env:SHA" -Headers $headers -ContentType 'application/json' -Body $body | Out-Null
