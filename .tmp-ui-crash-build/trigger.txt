@@ -1,1 +1,1 @@
-Trigger temporary UI Test crashlog build.
+Trigger temporary UI Test crashlog build — verify six-part payload.
