@@ -1,0 +1,70 @@
+name: TEMP UI Test Crashlog Build
+
+on:
+  push:
+    branches:
+      - temp-ui-test-crashlog-build
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout temporary branch
+        uses: actions/checkout@v4
+
+      - name: Use .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Reconstruct exact UI Test source
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $encoded = [IO.File]::ReadAllText('.tmp-ui-crash-build/src.part00').Trim()
+          [IO.File]::WriteAllBytes('ui-test-source.tar.gz', [Convert]::FromBase64String($encoded))
+          New-Item -ItemType Directory -Path 'ui-test-build' -Force | Out-Null
+          tar -xzf 'ui-test-source.tar.gz' -C 'ui-test-build'
+          if (-not (Test-Path 'ui-test-build/CSharpHost/SleepySource.csproj')) { throw 'Temporary UI Test source archive did not reconstruct correctly.' }
+          Copy-Item 'CSharpHost/assets' 'ui-test-build/CSharpHost/assets' -Recurse -Force
+          @'
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#42b9ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.8 19 5.5v5.7c0 4.7-2.8 8.2-7 10-4.2-1.8-7-5.3-7-10V5.5L12 2.8Z"/><path d="m8.7 11.7 2.1 2.1 4.5-4.7"/></svg>
+          '@ | Set-Content 'ui-test-build/CSharpHost/assets/obs-watchdog-shield.svg' -Encoding utf8
+
+      - name: Publish Windows x64 single EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          dotnet restore 'ui-test-build/CSharpHost/SleepySource.csproj' -r win-x64
+          dotnet publish 'ui-test-build/CSharpHost/SleepySource.csproj' -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true --no-restore -o 'ui-test-dist'
+          if (-not (Test-Path 'ui-test-dist/SleepySource.exe')) { throw 'SleepySource.exe was not produced.' }
+          Get-ChildItem 'ui-test-dist' -Filter '*.xml' -File | Remove-Item -Force
+
+      - name: Run compiled backend and crashlog smoke test
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & (Resolve-Path 'ui-test-dist/SleepySource.exe') --smoke-test
+          if ($LASTEXITCODE -ne 0) { throw "Smoke test failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path 'ui-test-dist/Logs/Crashes')) { throw 'Crash log folder was not created by smoke test.' }
+          if (Get-ChildItem 'ui-test-dist/Logs/Crashes' -Filter 'Crash_*.log' -File -ErrorAction SilentlyContinue) { throw 'Crashlog self-test left a retained crash report behind.' }
+
+      - name: Verify crashlog feature compiled into EXE
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $bytes = [IO.File]::ReadAllBytes('ui-test-dist/SleepySource.exe')
+          $ascii = [Text.Encoding]::ASCII.GetString($bytes)
+          foreach ($marker in @('CrashLogService','Logs\\Crashes','/api/system/crashes','PreviousSessionEndedUnexpectedly')) {
+            if (-not $ascii.Contains($marker)) { throw "Compiled EXE is missing crashlog marker: $marker" }
+          }
+
+      - name: Upload compiled UI Test build
+        uses: actions/upload-artifact@v4
+        with:
+          name: SleepySource-UI-Test-Crashlog-Build
+          path: ui-test-dist/
+          if-no-files-found: error
