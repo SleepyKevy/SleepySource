@@ -3,7 +3,7 @@ name: Temp SleepySource UI Test CrashLog Build
 on:
   push:
     branches:
-      - temp-ui-test-crashlog-build
+      - disabled-temp-ui-test-crashlog-build
   pull_request:
     branches:
       - main
