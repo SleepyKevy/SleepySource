@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SleepySource 1.0.0</title>
+<style>
+:root{
+  color-scheme:dark;
+  --bg:#02050a;
+  --panel:#07101e;
+  --text:#f7fbff;
+  --muted:#7f94b1;
+  --muted-strong:#a7bdd8;
+  --cyan:#22dcff;
+  --blue:#138dff;
+  --deep-blue:#064ee8;
+  --line:rgba(75,181,255,.26);
+  --progress:8%;
+}
+*{box-sizing:border-box}
+html,body{width:100%;height:100%}
+html{background:#010308}
+body{
+  margin:0;
+  overflow:hidden;
+  color:var(--text);
+  font-family:"Segoe UI Variable","Segoe UI",Inter,system-ui,-apple-system,sans-serif;
+  background:
+    radial-gradient(ellipse at 50% 29%,rgba(7,98,255,.22) 0%,rgba(0,46,132,.11) 28%,transparent 58%),
+    radial-gradient(ellipse at 50% 96%,rgba(0,140,255,.10),transparent 48%),
+    linear-gradient(180deg,#01040a 0%,#030915 50%,#01040a 100%);
+}
+body::before{
+  content:"";
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  opacity:.40;
+  background-image:
+    linear-gradient(rgba(80,153,255,.025) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(80,153,255,.025) 1px,transparent 1px);
+  background-size:42px 42px;
+  mask-image:radial-gradient(circle at 50% 45%,#000 0%,transparent 78%);
+}
+body::after{
+  content:"";
+  position:fixed;
+  inset:-18%;
+  pointer-events:none;
+  background:
+    radial-gradient(circle at 22% 64%,rgba(0,104,255,.095),transparent 19%),
+    radial-gradient(circle at 79% 60%,rgba(0,204,255,.08),transparent 17%),
+    radial-gradient(circle at 50% 35%,rgba(0,69,255,.105),transparent 27%);
+  filter:blur(28px);
+  animation:ambientDrift 14s cubic-bezier(.45,0,.55,1) infinite alternate;
+}
+
+.fx-layer{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:0}
+.aurora{
+  position:absolute;
+  inset:-16%;
+  opacity:.35;
+  background:conic-gradient(from 205deg at 50% 46%,transparent 0 31%,rgba(0,138,255,.13) 38%,transparent 45% 63%,rgba(0,218,255,.10) 70%,transparent 78% 100%);
+  filter:blur(42px);
+  animation:auroraTurn 18s linear infinite;
+}
+.scanline{
+  position:absolute;
+  left:-36%;
+  top:0;
+  width:32%;
+  height:100%;
+  opacity:0;
+  transform:skewX(-14deg);
+  background:linear-gradient(90deg,transparent,rgba(109,226,255,.025),rgba(32,151,255,.075),rgba(109,226,255,.025),transparent);
+  animation:screenSweep 8.5s ease-in-out 2.2s infinite;
+}
+.particleField{position:absolute;inset:0}
+.particle{
+  position:absolute;
+  left:var(--x);
+  top:var(--y);
+  width:var(--size);
+  height:var(--size);
+  border-radius:50%;
+  background:#72dcff;
+  box-shadow:0 0 calc(var(--size) * 5) rgba(19,143,255,.72);
+  opacity:0;
+  animation:particleFloat var(--duration) ease-in-out var(--delay) infinite;
+}
+
+.splash{
+  position:relative;
+  z-index:2;
+  width:100%;
+  height:100%;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:clamp(22px,3vh,36px) clamp(24px,4vw,60px);
+  opacity:1;
+  transform:scale(1);
+  filter:blur(0);
+  transition:opacity .66s cubic-bezier(.16,1,.3,1),transform .72s cubic-bezier(.16,1,.3,1),filter .62s cubic-bezier(.16,1,.3,1);
+}
+.splash.leaving{opacity:0;transform:scale(1.009);filter:blur(1.2px)}
+.content{
+  width:min(820px,92vw);
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  position:relative;
+}
+.logoStage{
+  position:relative;
+  width:clamp(250px,34vh,405px);
+  height:clamp(250px,34vh,405px);
+  display:grid;
+  place-items:center;
+  margin-bottom:clamp(1px,.6vh,8px);
+  animation:introRise .72s cubic-bezier(.17,.84,.34,1) .03s both;
+}
+.orbit{
+  position:absolute;
+  inset:7%;
+  border-radius:50%;
+  border:1px solid rgba(42,181,255,.12);
+  box-shadow:0 0 28px rgba(0,86,255,.07) inset,0 0 30px rgba(0,105,255,.06);
+  animation:orbitBreathe 7.4s cubic-bezier(.45,0,.55,1) infinite;
+}
+.orbit::before,.orbit::after{
+  content:"";
+  position:absolute;
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  background:#58ddff;
+  box-shadow:0 0 11px rgba(38,202,255,.92),0 0 22px rgba(0,111,255,.55);
+}
+.orbit::before{top:10.4%;left:20.2%}
+.orbit::after{right:13%;bottom:16%}
+.orbitInner{
+  position:absolute;
+  inset:1.5%;
+  border-radius:50%;
+  border:1px solid rgba(28,119,255,.08);
+  animation:orbitTurn 22s linear infinite;
+}
+.logoGlow{
+  position:absolute;
+  width:126%;
+  height:126%;
+  border-radius:50%;
+  background:radial-gradient(circle,rgba(0,202,255,.16) 0%,rgba(0,87,255,.10) 35%,transparent 66%);
+  filter:blur(18px);
+  animation:haloPulse 5.8s cubic-bezier(.45,0,.55,1) infinite;
+}
+.logoGround{
+  position:absolute;
+  width:120%;
+  height:18%;
+  left:-10%;
+  top:67%;
+  border-radius:50%;
+  background:radial-gradient(ellipse,rgba(0,167,255,.39),rgba(0,77,255,.12) 39%,transparent 72%);
+  filter:blur(17px);
+  opacity:.7;
+  animation:groundPulse 5.8s cubic-bezier(.45,0,.55,1) infinite;
+}
+.logoWrap{
+  position:relative;
+  z-index:3;
+  width:91%;
+  height:91%;
+  display:grid;
+  place-items:center;
+  animation:logoBreathe 5.8s cubic-bezier(.45,0,.55,1) infinite;
+}
+.logo{
+  width:100%;
+  height:100%;
+  object-fit:contain;
+  user-select:none;
+  -webkit-user-drag:none;
+  filter:drop-shadow(0 0 9px rgba(0,221,255,.50)) drop-shadow(0 0 27px rgba(0,89,255,.32));
+}
+.logoSheen{
+  position:absolute;
+  inset:0;
+  z-index:4;
+  pointer-events:none;
+  opacity:0;
+  mix-blend-mode:screen;
+  mask:url('/assets/sleepysource-mark.webp') center/contain no-repeat;
+  -webkit-mask:url('/assets/sleepysource-mark.webp') center/contain no-repeat;
+  background:linear-gradient(112deg,transparent 35%,rgba(224,250,255,.62) 48%,rgba(87,222,255,.28) 53%,transparent 64%);
+  transform:translateX(-76%);
+  animation:logoSheen 8.2s cubic-bezier(.45,0,.55,1) 2.8s infinite;
+}
+.logoStage.finalPulse .logoWrap{animation:finalLogoPulse .92s cubic-bezier(.16,1,.3,1) both}
+.logoStage.finalPulse .logoGlow{animation:finalHalo .92s cubic-bezier(.16,1,.3,1) both}
+
+.title{
+  margin:0;
+  font-size:clamp(46px,7.2vh,76px);
+  line-height:.98;
+  font-weight:790;
+  letter-spacing:-.044em;
+  color:#f6f9ff;
+  text-shadow:0 0 20px rgba(63,145,255,.18),0 1px 0 rgba(255,255,255,.16);
+  animation:introRise .62s cubic-bezier(.17,.84,.34,1) .15s both;
+}
+.tm{display:inline-block;margin-left:.12em;font-size:.34em;vertical-align:super;line-height:1;color:#a9bdd8;letter-spacing:0;transform:translateY(-.06em)}
+.subtitle{
+  margin-top:clamp(8px,1.15vh,13px);
+  color:#a0b5d3;
+  font-size:clamp(14px,1.8vh,19px);
+  font-weight:560;
+  letter-spacing:.02em;
+  animation:introRise .62s cubic-bezier(.17,.84,.34,1) .23s both;
+}
+
+.loader{
+  width:min(520px,74vw);
+  margin-top:clamp(26px,3.4vh,36px);
+  animation:introRise .62s cubic-bezier(.17,.84,.34,1) .34s both;
+}
+.loaderMeta{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:18px;
+  margin:0 3px 9px;
+  min-height:21px;
+  color:#869bb9;
+  font-size:clamp(11px,1.25vh,13px);
+  letter-spacing:.025em;
+}
+.statusText{
+  min-width:0;
+  overflow:hidden;
+  white-space:nowrap;
+  text-overflow:ellipsis;
+  transition:opacity .24s cubic-bezier(.16,1,.3,1),transform .24s cubic-bezier(.16,1,.3,1),color .28s ease;
+}
+.statusText.changing{opacity:.22;transform:translateY(1.5px)}
+.percent{
+  flex:0 0 auto;
+  min-width:42px;
+  text-align:right;
+  color:#9cc9e8;
+  font-variant-numeric:tabular-nums;
+  font-weight:650;
+}
+.track{
+  position:relative;
+  height:7px;
+  overflow:hidden;
+  border-radius:999px;
+  background:linear-gradient(180deg,rgba(7,23,44,.98),rgba(4,13,27,.98));
+  border:1px solid rgba(73,163,255,.18);
+  box-shadow:0 1px 0 rgba(255,255,255,.025) inset,0 0 18px rgba(0,94,255,.08);
+}
+.track::before{
+  content:"";
+  position:absolute;
+  inset:1px;
+  border-radius:inherit;
+  background:linear-gradient(90deg,rgba(255,255,255,.025),transparent 45%);
+}
+.bar{
+  position:absolute;
+  inset:-1px auto -1px -1px;
+  width:var(--progress);
+  min-width:7px;
+  border-radius:999px;
+  background:linear-gradient(90deg,#075de8 0%,#0b93ff 48%,#26dcff 100%);
+  box-shadow:0 0 9px rgba(0,151,255,.55),0 0 18px rgba(0,106,255,.25);
+  transition:width .08s linear;
+}
+.bar::after{
+  content:"";
+  position:absolute;
+  top:0;
+  right:-34px;
+  width:58px;
+  height:100%;
+  opacity:.75;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.72),transparent);
+  filter:blur(1px);
+  animation:barGlint 1.8s cubic-bezier(.45,0,.55,1) infinite;
+}
+.loader.ready .statusText,.loader.ready .percent{color:rgba(238,246,255,.76);text-shadow:0 0 8px rgba(187,221,255,.08),0 0 14px rgba(114,176,255,.12)}
+.loader.ready .track{box-shadow:0 0 22px rgba(0,152,255,.16)}
+.loader.ready .bar{box-shadow:0 0 12px rgba(0,213,255,.72),0 0 27px rgba(0,105,255,.38)}
+
+.footer{
+  margin-top:clamp(18px,2.4vh,25px);
+  color:#657a98;
+  font-size:clamp(11px,1.3vh,14px);
+  font-weight:470;
+  letter-spacing:.015em;
+  animation:introRise .58s cubic-bezier(.17,.84,.34,1) .46s both;
+}
+.footer .dot{color:#1a8fff;padding:0 .5em}
+.corner{
+  position:fixed;
+  z-index:4;
+  bottom:18px;
+  color:rgba(143,168,200,.48);
+  font-size:10px;
+  letter-spacing:.055em;
+  text-transform:uppercase;
+  user-select:none;
+  animation:cornerFade 1s ease .7s both;
+}
+.corner.left{left:22px}
+.corner.right{right:22px;text-transform:none;color:rgba(238,246,255,.76);font-weight:500;letter-spacing:.045em}
+.cornerStatus{display:inline-flex;align-items:center;gap:7px}
+.cornerDot{width:5px;height:5px;border-radius:50%;background:#1bbcff;box-shadow:0 0 8px rgba(0,183,255,.76);animation:readyPulse 2.3s ease-in-out infinite}
+
+.transitionCurtain{
+  position:fixed;
+  z-index:12;
+  inset:0;
+  pointer-events:none;
+  opacity:0;
+  background:radial-gradient(circle at 50% 42%,rgba(6,28,65,.42),#010308 63%);
+  transition:opacity .62s cubic-bezier(.16,1,.3,1);
+}
+.transitionCurtain.active{opacity:1}
+.fx-layer,.corner{transition:opacity .62s cubic-bezier(.16,1,.3,1)}
+body.transitioning .fx-layer,body.transitioning .corner{opacity:0}
+
+@keyframes introRise{from{opacity:0;transform:translateY(13px) scale(.992)}to{opacity:1;transform:none}}
+@keyframes cornerFade{from{opacity:0}to{opacity:1}}
+@keyframes ambientDrift{from{transform:translate3d(-1.5%,.8%,0) scale(1)}to{transform:translate3d(1.5%,-1%,0) scale(1.035)}}
+@keyframes auroraTurn{to{transform:rotate(360deg)}}
+@keyframes orbitTurn{to{transform:rotate(360deg)}}
+@keyframes orbitBreathe{0%,100%{opacity:.38;transform:scale(.985)}50%{opacity:.72;transform:scale(1.02)}}
+@keyframes logoBreathe{0%,100%{transform:scale(1)}50%{transform:scale(1.012)}}
+@keyframes haloPulse{0%,100%{opacity:.50;transform:scale(.965)}50%{opacity:.88;transform:scale(1.025)}}
+@keyframes groundPulse{0%,100%{opacity:.48;transform:scaleX(.90)}50%{opacity:.78;transform:scaleX(1.05)}}
+@keyframes logoSheen{0%,68%{opacity:0;transform:translateX(-78%)}74%{opacity:.34}82%{opacity:.12;transform:translateX(82%)}100%{opacity:0;transform:translateX(82%)}}
+@keyframes finalLogoPulse{0%{transform:scale(1)}46%{transform:scale(1.017);filter:brightness(1.055)}100%{transform:scale(1);filter:none}}
+@keyframes finalHalo{0%{opacity:.58;transform:scale(.985)}46%{opacity:.94;transform:scale(1.045)}100%{opacity:.63;transform:scale(1.005)}}
+@keyframes screenSweep{0%,70%{left:-36%;opacity:0}77%{opacity:.72}94%{opacity:.38}100%{left:112%;opacity:0}}
+@keyframes barGlint{0%{transform:translateX(-25px);opacity:0}35%{opacity:.72}100%{transform:translateX(25px);opacity:0}}
+@keyframes readyPulse{0%,100%{opacity:.56;transform:scale(.9)}50%{opacity:1;transform:scale(1.22)}}
+@keyframes particleFloat{
+  0%,100%{opacity:0;transform:translate3d(0,0,0) scale(.72)}
+  15%{opacity:var(--alpha-low);transform:translate3d(var(--dx1a),var(--dy1a),0) scale(.86)}
+  32%{opacity:var(--alpha);transform:translate3d(var(--dx1),var(--dy1),0) scale(1)}
+  55%{opacity:var(--alpha-mid);transform:translate3d(var(--dx2),var(--dy2),0) scale(1.05)}
+  79%{opacity:var(--alpha-soft);transform:translate3d(var(--dx3),var(--dy3),0) scale(.95)}
+  93%{opacity:var(--alpha-fade);transform:translate3d(var(--dx2a),var(--dy2a),0) scale(.82)}
+}
+
+@media (max-height:760px){
+  .splash{padding:14px 24px}
+  .logoStage{width:clamp(210px,30vh,282px);height:clamp(210px,30vh,282px)}
+  .title{font-size:clamp(40px,6.7vh,58px)}
+  .loader{margin-top:18px}
+  .footer{margin-top:14px}
+}
+@media (max-width:640px){
+  .splash{padding:18px}
+  .content{width:100%}
+  .logoStage{width:min(62vw,292px);height:min(62vw,292px)}
+  .title{font-size:clamp(39px,12.8vw,58px)}
+  .loader{width:min(480px,86vw)}
+  .corner{bottom:11px}.corner.left{left:13px}.corner.right{right:13px}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition-duration:.01ms!important}
+}
+</style>
+</head>
+<body>
+<div class="fx-layer" aria-hidden="true">
+  <div class="aurora"></div>
+  <div class="scanline"></div>
+  <div id="particleField" class="particleField"></div>
+</div>
+
+<div class="corner left"><span class="cornerStatus"><span class="cornerDot"></span><span id="cornerStatusText">Starting</span></span></div>
+<div class="corner right">Build 1.0.0</div>
+
+<main id="splash" class="splash">
+  <section class="content" aria-labelledby="appTitle">
+    <div id="logoStage" class="logoStage" aria-hidden="true">
+      <div class="logoGlow"></div>
+      <div class="logoGround"></div>
+      <div class="orbit"><div class="orbitInner"></div></div>
+      <div class="logoWrap">
+        <img class="logo" src="/assets/sleepysource-mark.webp" alt="" draggable="false">
+        <div class="logoSheen"></div>
+      </div>
+    </div>
+
+    <h1 id="appTitle" class="title">SleepySource<span class="tm" aria-label="trademark">™</span></h1>
+    <div class="subtitle">Streaming tools, unified.</div>
+
+    <div id="loader" class="loader" role="status" aria-live="polite">
+      <div class="loaderMeta">
+        <span id="statusText" class="statusText">Initializing SleepySource</span>
+        <span id="percent" class="percent">8%</span>
+      </div>
+      <div class="track" aria-hidden="true"><div class="bar"></div></div>
+    </div>
+
+    <div class="footer">Made by SleepyKev <span class="dot">•</span> 2026</div>
+  </section>
+</main>
+<div id="transitionCurtain" class="transitionCurtain" aria-hidden="true"></div>
+
+<script>
+(() => {
+  const root = document.documentElement;
+  const splash = document.getElementById('splash');
+  const loader = document.getElementById('loader');
+  const logoStage = document.getElementById('logoStage');
+  const statusText = document.getElementById('statusText');
+  const percent = document.getElementById('percent');
+  const cornerStatusText = document.getElementById('cornerStatusText');
+  const curtain = document.getElementById('transitionCurtain');
+  const particleField = document.getElementById('particleField');
+
+  const inWebView = !!(window.chrome && window.chrome.webview);
+  let progress = 8;
+  let targetProgress = 8;
+  let status = 'Initializing SleepySource';
+  let waitingForHost = false;
+  let hostReady = false;
+  let finished = false;
+  let fallbackTimer = 0;
+
+  const phases = [
+    { at: 18, text: 'Preparing interface' },
+    { at: 34, text: 'Initializing WebView2 runtime' },
+    { at: 54, text: 'Loading SleepySource services' },
+    { at: 72, text: 'Restoring workspace' },
+    { at: 86, text: 'Preparing streaming tools' },
+    { at: 92, text: 'Final startup checks' }
+  ];
+
+  function buildParticles() {
+    if (!particleField || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    particleField.textContent = '';
+    const count = Math.min(28, Math.max(16, Math.round(innerWidth / 78)));
+    for (let i = 0; i < count; i++) {
+      const p = document.createElement('span');
+      p.className = 'particle';
+      const size = .9 + Math.random() * 2.35;
+      const alpha = .09 + Math.random() * .18;
+      const dx1 = -24 + Math.random() * 48;
+      const dy1 = -25 + Math.random() * 50;
+      const dx2 = -24 + Math.random() * 48;
+      const dy2 = -25 + Math.random() * 50;
+      const dx3 = -24 + Math.random() * 48;
+      const dy3 = -25 + Math.random() * 50;
+      p.style.setProperty('--x', `${2 + Math.random() * 96}%`);
+      p.style.setProperty('--y', `${5 + Math.random() * 90}%`);
+      p.style.setProperty('--size', `${size.toFixed(2)}px`);
+      p.style.setProperty('--alpha', alpha.toFixed(2));
+      p.style.setProperty('--alpha-low', (alpha * .52).toFixed(2));
+      p.style.setProperty('--alpha-mid', (alpha * .9).toFixed(2));
+      p.style.setProperty('--alpha-soft', (alpha * .78).toFixed(2));
+      p.style.setProperty('--alpha-fade', (alpha * .42).toFixed(2));
+      p.style.setProperty('--duration', `${(9 + Math.random() * 10).toFixed(2)}s`);
+      p.style.setProperty('--delay', `${(-Math.random() * 13).toFixed(2)}s`);
+      p.style.setProperty('--dx1', `${dx1.toFixed(1)}px`);
+      p.style.setProperty('--dy1', `${dy1.toFixed(1)}px`);
+      p.style.setProperty('--dx1a', `${(dx1 * .35).toFixed(1)}px`);
+      p.style.setProperty('--dy1a', `${(dy1 * .35).toFixed(1)}px`);
+      p.style.setProperty('--dx2', `${dx2.toFixed(1)}px`);
+      p.style.setProperty('--dy2', `${dy2.toFixed(1)}px`);
+      p.style.setProperty('--dx2a', `${(dx2 * .45).toFixed(1)}px`);
+      p.style.setProperty('--dy2a', `${(dy2 * .45).toFixed(1)}px`);
+      p.style.setProperty('--dx3', `${dx3.toFixed(1)}px`);
+      p.style.setProperty('--dy3', `${dy3.toFixed(1)}px`);
+      particleField.appendChild(p);
+    }
+  }
+
+  function setStatus(next) {
+    if (!next || next === status) return;
+    status = next;
+    statusText.classList.add('changing');
+    setTimeout(() => {
+      statusText.textContent = next;
+      statusText.classList.remove('changing');
+    }, 150);
+  }
+
+  function setTarget(value) {
+    targetProgress = Math.max(targetProgress, Math.min(100, value));
+  }
+
+  let lastProgressFrame = performance.now();
+
+  function renderProgress(now = performance.now()) {
+    const dt = Math.min(48, Math.max(1, now - lastProgressFrame));
+    lastProgressFrame = now;
+
+    if (progress < targetProgress) {
+      const delta = targetProgress - progress;
+      const easedStep = delta * (1 - Math.exp(-dt / 260));
+      const minStep = dt * .0045;
+      const maxStep = dt * .045;
+      progress += Math.min(delta, Math.max(minStep, Math.min(maxStep, easedStep)));
+      if (targetProgress <= 92) progress = Math.min(progress, 92);
+    }
+
+    const shown = Math.min(100, Math.floor(progress));
+    root.style.setProperty('--progress', `${Math.max(1, progress).toFixed(2)}%`);
+    percent.textContent = `${shown}%`;
+    requestAnimationFrame(renderProgress);
+  }
+
+  function runPhase(index = 0) {
+    if (index >= phases.length) {
+      waitForHost();
+      return;
+    }
+    const phase = phases[index];
+    setStatus(phase.text);
+    setTarget(phase.at);
+    const duration = 300 + Math.random() * 130;
+    setTimeout(() => runPhase(index + 1), duration);
+  }
+
+  function waitForHost() {
+    if (waitingForHost || finished) return;
+    waitingForHost = true;
+    setTarget(92);
+    setStatus('Waiting for core services');
+    cornerStatusText.textContent = 'Core services';
+
+    if (inWebView) {
+      try { window.chrome.webview.postMessage('splash-stage-complete'); } catch {}
+      // Compatibility path for builds made before the backend-ready handshake.
+      // The existing host will ignore splash-stage-complete, then the splash
+      // completes after this brief grace period and sends the normal "open" message.
+      fallbackTimer = window.setTimeout(() => completeStartup(false), 820);
+    } else {
+      // Standalone browser preview: show the complete visual sequence but do not
+      // attempt to navigate to the local SleepySource backend.
+      fallbackTimer = window.setTimeout(() => completeStartup(false), 780);
+    }
+  }
+
+  function completeStartup(fromHost) {
+    if (finished) return;
+    finished = true;
+    hostReady = hostReady || fromHost;
+    if (fallbackTimer) clearTimeout(fallbackTimer);
+    setStatus('Ready');
+    setTarget(100);
+    cornerStatusText.textContent = 'Ready';
+
+    const watchFinish = () => {
+      if (progress < 99.65) {
+        requestAnimationFrame(watchFinish);
+        return;
+      }
+
+      progress = 100;
+      root.style.setProperty('--progress', '100%');
+      percent.textContent = '100%';
+      loader.classList.add('ready');
+      logoStage.classList.add('finalPulse');
+
+      setTimeout(() => {
+        if (!inWebView) return;
+        document.body.classList.add('transitioning');
+        splash.classList.add('leaving');
+        curtain.classList.add('active');
+        setTimeout(() => {
+          try { window.chrome.webview.postMessage('open'); }
+          catch { window.location.assign('http://127.0.0.1:17891/designer'); }
+        }, 440);
+      }, 640);
+    };
+
+    requestAnimationFrame(watchFinish);
+  }
+
+  if (inWebView) {
+    window.chrome.webview.addEventListener('message', event => {
+      if (event.data === 'backend-ready') completeStartup(true);
+    });
+  }
+
+  buildParticles();
+  addEventListener('resize', () => {
+    clearTimeout(window.__sleepyParticleResizeTimer);
+    window.__sleepyParticleResizeTimer = setTimeout(buildParticles, 130);
+  });
+
+  renderProgress();
+  setTimeout(() => runPhase(0), 460);
+})();
+</script>
+</body>
+</html>

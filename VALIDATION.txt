@@ -1,0 +1,136 @@
+SLEEPYSOURCE 1.0.0 — RELEASE VALIDATION
+=================================================
+Made by SleepyKev • 2026-08-17
+
+RELEASE IDENTITY
+----------------
+[PASS] Active source product identity is SleepySource 1.0.0.
+[PASS] Project Version is 1.0.0.
+[PASS] FileVersion and AssemblyVersion are 1.0.0.0.
+[PASS] InformationalVersion is 1.0.0.
+[PASS] Desktop window/tray/single-instance identity was updated for 1.0.0.
+[PASS] Update comparison baseline was updated to 1.0.0.
+[PASS] Splash/dashboard page titles and visible build/version labels were updated.
+[PASS] Superseded development branding is absent from active release files.
+
+CONNECTIONS / NAVIGATION
+------------------------
+[PASS] Connections has a standalone main navigation button below Home.
+[PASS] Connections is not present inside the Tools navigation list.
+[PASS] Tools contains Now Playing, Chat Overlay, Alert Studio, Stream Dashboard,
+ and Countdown Pro.
+[PASS] isToolsModule() excludes Connections.
+[PASS] Connections workspace activation/status-refresh logic remains wired.
+[PASS] Opening Connections does not mark the Tools toggle active.
+
+SLEEPYSERVICES ENDPOINT MIGRATION
+----------------------------------
+[PASS] Active desktop API base is https://sleepysource-api.sleepyservices.workers.dev.
+[PASS] Active Cloudflare Worker health/webhook URLs use the sleepyservices subdomain.
+[PASS] Retired account endpoint text is absent from active source files.
+[PASS] Supplied SleepySource.exe was endpoint-patched without changing its file size,
+ bundle manifest layout, product version, or unsigned PE status.
+[PASS] Managed ldstr references and the public const ApiBase metadata value were
+ retargeted to the sleepyservices endpoint.
+[PASS] Release ZIP naming uses SleepySource_1.0.0.zip without a Public suffix.
+
+
+KICK EVENT DELIVERY REPAIR
+--------------------------
+[PASS] Event sync deletes only existing SleepySource-required subscription IDs.
+[PASS] Event sync recreates all required Kick events, including chat.message.sent.
+[PASS] DELETE uses Kick's documented repeated id query parameters on
+ /public/v1/events/subscriptions.
+[PASS] Subscription mappings are re-read from Kick and replaced in D1 after recreation.
+[PASS] SleepySource account/OAuth credentials are not disconnected by event repair.
+[PASS] Public release archive uses top-level folder SleepySource 1.0.0.
+
+CLOUDFLARE OBSERVABILITY / FINAL CHAT DELIVERY
+-----------------------------------------------
+[PASS] wrangler.jsonc explicitly enables Workers Logs.
+[PASS] Invocation logs are enabled at 100% sampling.
+[PASS] Workers Logs persistence to the Cloudflare dashboard is enabled.
+[PASS] Deployment safety checks reject unexpected SleepySource API Workers hostnames.
+[PASS] Packaged source and public executable contain no legacy Workers account hostname text.
+[PASS] Live Kick chat delivery was verified through /kick/webhook, realtime/D1 delivery, and Chat Overlay.
+
+AUTH / KICK ARCHITECTURE
+------------------------
+[PASS] Desktop Client ID / Client Secret entry and storage are absent.
+[PASS] Legacy local Kick OAuth callback service is absent.
+[PASS] Legacy Cloudflare Quick Tunnel service is absent.
+[PASS] Hosted SleepySourceApiService is present.
+[PASS] Shared Connect with Kick flow remains wired to Chat, Alerts, and Stream Dashboard.
+[PASS] Desktop persists only the opaque SleepySource connection credential.
+[PASS] Windows credential protection path remains present for that credential.
+[PASS] Managed event subscription synchronization remains wired.
+[PASS] Authenticated realtime WebSocket delivery remains wired.
+[PASS] D1 poll/ack fallback delivery remains wired.
+[PASS] Stream metadata/category/update proxy routes remain wired.
+[PASS] Kick access/refresh tokens remain server-side in the Worker architecture.
+
+WEB / SCRIPT VALIDATION
+-----------------------
+[PASS] CloudflareWorker/worker.js passes Node JavaScript syntax validation.
+[PASS] All inline scripts extracted from the six WebView/OBS HTML files pass
+ Node JavaScript syntax validation.
+[PASS] No duplicate HTML element IDs were detected in the WebView/OBS pages.
+[PASS] Source and Public web folders match byte-for-byte after release edits.
+[PASS] Source and Public asset folders match byte-for-byte.
+
+DATA / PROJECT VALIDATION
+-------------------------
+[PASS] Public default JSON files parse successfully.
+[PASS] Source JSON files parse successfully.
+[PASS] CloudflareWorker/wrangler.jsonc parses successfully as JSON.
+[PASS] CSharpHost/SleepySource.csproj parses successfully as XML.
+[PASS] C# source lexical/delimiter validation passes across active .cs files.
+[PASS] Curated spelling scan found no common release-facing spelling errors.
+[PASS] No embedded Kick Client Secret/access token/refresh token values were
+ found in the packaged desktop/source configuration; server-side code
+ references environment-bound secrets only.
+
+PUBLIC EXECUTABLE RELEASE IDENTITY
+----------------------------------
+[PASS] SleepySource.exe remains a valid PE32+ x64 Windows GUI executable.
+[PASS] Executable size was preserved while release identity strings were updated.
+[PASS] Compiled product/window/tray strings now identify SleepySource 1.0.0.
+[PASS] Compiled pre-release product strings are no longer present.
+[PASS] Compiled file/assembly version text is normalized to 1.0.0.0.
+[PASS] Compiled update-comparison version text is normalized to 1.0.0.
+[PASS] PE Security Directory remains empty (the build is unsigned, as expected).
+
+DOCUMENTATION / PACKAGING
+-------------------------
+[PASS] readme.txt is included in both Public and Source packages.
+[PASS] release_notes.txt is included in both Public and Source packages.
+[PASS] release_notes.txt consolidates the current release changes and prior
+ internal development history.
+[PASS] BUILD_RELEASE.ps1 replaces the pre-release build-script name.
+[PASS] GitHub Actions runtime-smoke workflow is branded for 1.0.0.
+[PASS] Cloudflare deployment/status documentation is branded for SleepySource 1.0.0.
+
+IMPORTANT RUNTIME LIMITATION OF THIS WORKSPACE
+----------------------------------------------
+The current Linux workspace does not contain the .NET SDK or a Windows runtime,
+so it cannot truthfully perform a fresh win-x64 publish or launch the Windows GUI.
+Network access from the build container is also unavailable, so the .NET SDK
+cannot be downloaded here.
+
+The supplied Public executable came from the previously working package. This
+release line previously changed version/product identity with equal-length binary
+string replacements. This endpoint migration additionally retargets the managed
+API string metadata inside the supplied single-file bundle while preserving the
+outer executable size and bundle manifest layout; its PE/bundle structure is
+revalidated here. A true Windows launch/API smoke test should still be run before
+publishing the GitHub Release.
+
+The Source package includes BUILD_RELEASE.ps1 and
+.github/workflows/csharp-runtime-smoke.yml. Either can perform the real .NET 8
+win-x64 publish/runtime smoke test on Windows / GitHub Actions.
+
+FINAL STATIC RELEASE AUDIT
+--------------------------
+Result: PASS
+Static/source/package checks completed with no unresolved code, navigation,
+syntax, spelling, identity, or archive-structure errors found.
