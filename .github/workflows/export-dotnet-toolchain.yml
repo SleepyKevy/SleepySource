@@ -1,11 +1,9 @@
 name: Export SleepySource .NET Toolchain
 
 on:
-  push:
+  pull_request:
     branches:
-      - ci/export-dotnet-toolchain-20260819
-    paths:
-      - '.github/workflows/export-dotnet-toolchain.yml'
+      - ci/export-dotnet-toolchain-base
   workflow_dispatch:
 
 permissions:
