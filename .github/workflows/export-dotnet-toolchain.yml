@@ -1,0 +1,78 @@
+name: Export SleepySource .NET Toolchain
+
+on:
+  push:
+    branches:
+      - ci/export-dotnet-toolchain-20260819
+    paths:
+      - '.github/workflows/export-dotnet-toolchain.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install isolated .NET 8 SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p toolchain/dotnet8
+          curl -fsSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
+          bash dotnet-install.sh --version 8.0.424 --install-dir "$GITHUB_WORKSPACE/toolchain/dotnet8" --no-path
+          "$GITHUB_WORKSPACE/toolchain/dotnet8/dotnet" --info
+
+      - name: Prime Windows build packages
+        shell: bash
+        env:
+          DOTNET_ROOT: ${{ github.workspace }}/toolchain/dotnet8
+          NUGET_PACKAGES: ${{ github.workspace }}/toolchain/nuget-packages
+        run: |
+          set -euo pipefail
+          mkdir -p toolchain/probe
+          cat > toolchain/probe/ToolchainProbe.csproj <<'EOF'
+          <Project Sdk="Microsoft.NET.Sdk">
+            <PropertyGroup>
+              <OutputType>WinExe</OutputType>
+              <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+              <UseWindowsForms>true</UseWindowsForms>
+              <EnableWindowsTargeting>true</EnableWindowsTargeting>
+              <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+              <SelfContained>true</SelfContained>
+            </PropertyGroup>
+            <ItemGroup>
+              <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4078.44" />
+              <FrameworkReference Include="Microsoft.AspNetCore.App" />
+            </ItemGroup>
+          </Project>
+          EOF
+          cat > toolchain/probe/Program.cs <<'EOF'
+          using System;
+          using System.Windows.Forms;
+          Console.WriteLine(typeof(Form).FullName);
+          EOF
+          "$DOTNET_ROOT/dotnet" restore toolchain/probe/ToolchainProbe.csproj -r win-x64
+          "$DOTNET_ROOT/dotnet" publish toolchain/probe/ToolchainProbe.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o toolchain/probe-publish
+          rm -rf toolchain/probe toolchain/probe-publish
+
+      - name: Pack toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -czf sleepysource-dotnet-toolchain.tar.gz -C toolchain dotnet8 nuget-packages
+          ls -lh sleepysource-dotnet-toolchain.tar.gz
+          sha256sum sleepysource-dotnet-toolchain.tar.gz
+
+      - name: Upload toolchain
+        uses: actions/upload-artifact@v4
+        with:
+          name: sleepysource-dotnet-toolchain
+          path: sleepysource-dotnet-toolchain.tar.gz
+          if-no-files-found: error
+          retention-days: 1
